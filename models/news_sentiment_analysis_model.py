@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from ai_models.database.db_config import execute_query, execute_values_query, execute_transaction
+from database.db_config import execute_query, execute_values_query, execute_transaction
 
 def create_news_sentiment_table():
     """뉴스 감성 분석 결과 테이블 생성"""
