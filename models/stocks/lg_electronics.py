@@ -11,7 +11,7 @@ from typing import Tuple, Dict, List
 import logging
 from datetime import datetime, timedelta
 
-from models.base_model import build_base_model, setup_gpu, enhanced_weighted_time_mse, EnsembleModel
+from models.base_model import BaseModel, setup_gpu, enhanced_weighted_time_mse
 from models.data_processor import DataProcessor
 from models.evaluation import ModelEvaluator, evaluate_predictions
 from database.database import DatabaseManager
@@ -22,15 +22,85 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class LGElectronicsModel:
-    def __init__(self):
+class LGElectronicsModel(BaseModel):
+    def __init__(self, use_cloud=False):
+        super().__init__(use_cloud)
         self.stock_name = "LG전자"
         self.stock_code = "066570"
         self.sequence_length = 20
         self.data_processor = DataProcessor()
         self.evaluator = ModelEvaluator()
         self.db_manager = DatabaseManager()
+        self.n_features = None  # 데이터 로드 시 설정
+        self.build_model()
+    
+    def build_model(self):
+        """LG전자 특화 모델 구조 정의"""
+        if self.n_features is None:
+            logger.warning("n_features가 설정되지 않았습니다. 기본값 30을 사용합니다.")
+            self.n_features = 30
+            
+        # 입력 레이어
+        inputs = tf.keras.layers.Input(shape=(self.sequence_length, self.n_features))
         
+        # LSTM 레이어
+        x = tf.keras.layers.LSTM(128, return_sequences=True)(inputs)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dropout(0.2)(x)
+        
+        # Attention 메커니즘
+        attention_output = tf.keras.layers.MultiHeadAttention(
+            num_heads=8,
+            key_dim=128
+        )(x, x)
+        
+        # Residual connection
+        x = tf.keras.layers.Add()([x, attention_output])
+        
+        # LSTM 레이어
+        x = tf.keras.layers.LSTM(64, return_sequences=False)(x)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dropout(0.2)(x)
+        
+        # Dense 레이어
+        x = tf.keras.layers.Dense(32, activation='relu')(x)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dropout(0.2)(x)
+        
+        # 출력 레이어 (5일 예측)
+        outputs = tf.keras.layers.Dense(5, activation='tanh')(x) * 0.05
+        
+        # 모델 생성
+        self.model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        
+        # 컴파일
+        optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        self.model.compile(
+            optimizer=optimizer,
+            loss=enhanced_weighted_time_mse,
+            metrics=['mae']
+        )
+    
+    def prepare_data(self, data):
+        """LG전자 데이터 전처리"""
+        try:
+            # 데이터 로드
+            stock_data, sentiment_data, economic_data = self.load_data()
+            
+            # 데이터 전처리
+            X_train, y_train, X_val, y_val, scaler = self.data_processor.prepare_data(
+                stock_data, sentiment_data, economic_data, self.sequence_length
+            )
+            
+            self.n_features = X_train.shape[2]
+            self.scaler = scaler
+            
+            return X_train, y_train, X_val, y_val
+            
+        except Exception as e:
+            logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
+            raise
+    
     def load_data(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """데이터 로드"""
         try:
@@ -107,43 +177,6 @@ class LGElectronicsModel:
             logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
     
-    def prepare_training_data(self, stock_data: pd.DataFrame, sentiment_data: pd.DataFrame, economic_data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, DataProcessor]:
-        """학습 데이터 준비"""
-        try:
-            # 데이터 전처리
-            X_train, y_train, X_val, y_val, scaler = self.data_processor.prepare_data(
-                stock_data, sentiment_data, economic_data, self.sequence_length
-            )
-            
-            return X_train, y_train, X_val, y_val, scaler
-            
-        except Exception as e:
-            logger.error(f"학습 데이터 준비 중 오류 발생: {str(e)}")
-            raise
-    
-    def train(self) -> None:
-        """모델 학습"""
-        try:
-            # GPU 설정
-            setup_gpu()
-            
-            # 데이터 로드 및 준비
-            stock_data, sentiment_data, economic_data = self.load_data()
-            X_train, y_train, X_val, y_val, scaler = self.prepare_training_data(
-                stock_data, sentiment_data, economic_data
-            )
-            
-            # 앙상블 모델 초기화 및 학습
-            ensemble = EnsembleModel(input_shape=(X_train.shape[1], X_train.shape[2]))
-            ensemble.build_models()
-            histories = ensemble.train(X_train, y_train, X_val, y_val, scaler)
-            
-            logger.info("모델 학습 완료")
-            
-        except Exception as e:
-            logger.error(f"모델 학습 중 오류 발생: {str(e)}")
-            raise
-    
     def get_latest_price(self) -> float:
         """가장 최근 주가 조회"""
         try:
@@ -168,8 +201,8 @@ class LGElectronicsModel:
             logger.error(f"최근 주가 조회 중 오류 발생: {e}")
             return 81800.0
     
-    def predict(self, start_date: datetime) -> List[Dict]:
-        """주가 예측"""
+    def predict_next_five_days(self, start_date: datetime) -> List[Dict]:
+        """다음 5일 예측"""
         try:
             # 현재 가격 가져오기
             last_price = self.get_latest_price()
@@ -182,10 +215,8 @@ class LGElectronicsModel:
                 stock_data, sentiment_data, economic_data, self.sequence_length
             )
             
-            # 앙상블 모델 로드 및 예측
-            ensemble = EnsembleModel(input_shape=(X.shape[1], X.shape[2]))
-            ensemble.build_models()
-            predictions = ensemble.predict(X)
+            # 예측
+            predictions = self.model.predict(X)
             
             # 예측 결과를 실제 가격으로 변환
             predicted_prices = []
@@ -216,7 +247,7 @@ class LGElectronicsModel:
         """모델 평가"""
         try:
             # 예측 수행
-            predictions = self.predict(start_date)
+            predictions = self.predict_next_five_days(start_date)
             
             # 실제 가격 데이터 조회
             query = """
@@ -246,5 +277,5 @@ class LGElectronicsModel:
             raise
 
 if __name__ == "__main__":
-    model = LGElectronicsModel()
+    model = LGElectronicsModel(use_cloud=True)
     model.train() 

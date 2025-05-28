@@ -19,7 +19,7 @@ def main():
         logger.info("LG전자 모델 학습 완료")
         
         # 학습된 모델로 예측 수행
-        start_date = "2025-03-24"
+        start_date = "2025-03-26"
         end_date = "2025-03-28"
         
         # 모델 평가
