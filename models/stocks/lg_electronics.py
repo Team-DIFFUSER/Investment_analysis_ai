@@ -175,10 +175,94 @@ class LGElectronicsModel(BaseModel):
     def load_data(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """모든 데이터 로드"""
         try:
-            stock_data = self.load_stock_data()
-            sentiment_data = self.load_sentiment_data()
-            economic_data = self.load_economic_data()
+            # 주가 데이터 로드
+            stock_query = """
+            SELECT 
+                time as date,
+                stock_code,
+                stock_name,
+                open_price as open,
+                high_price as high,
+                low_price as low,
+                close_price as close,
+                volume,
+                market_cap,
+                foreign_holding,
+                foreign_holding_ratio as foreign_ratio
+            FROM stock_prices
+            WHERE stock_name = %s
+            ORDER BY time;
+            """
+            stock_data = pd.DataFrame(self.db_manager.execute_query(stock_query, (self.stock_name,)))
+            
+            # 감성 데이터 로드
+            sentiment_query = """
+            SELECT 
+                pub_date as date,
+                finbert_positive,
+                finbert_negative,
+                finbert_neutral,
+                finbert_sentiment
+            FROM news_sentiment
+            WHERE pub_date >= %s
+            ORDER BY pub_date;
+            """
+            sentiment_data = pd.DataFrame(self.db_manager.execute_query(
+                sentiment_query, (stock_data['date'].min(),)
+            ))
+            
+            # 경제지표 데이터 로드
+            economic_query = """
+            SELECT 
+                time as date,
+                treasury_10y,
+                dollar_index,
+                usd_krw,
+                korean_bond_10y
+            FROM economic_indicators
+            WHERE time >= %s
+            ORDER BY time;
+            """
+            economic_data = pd.DataFrame(self.db_manager.execute_query(
+                economic_query, (stock_data['date'].min(),)
+            ))
+            
+            # 데이터 전처리
+            # 1. 날짜 형식 통일
+            for df in [stock_data, sentiment_data, economic_data]:
+                df['date'] = pd.to_datetime(df['date'])
+            
+            # 2. 숫자형 컬럼 변환
+            numeric_columns = {
+                'stock_data': ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio'],
+                'sentiment_data': ['finbert_positive', 'finbert_negative', 'finbert_neutral', 'finbert_sentiment'],
+                'economic_data': ['treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y']
+            }
+            
+            for col in numeric_columns['stock_data']:
+                stock_data[col] = pd.to_numeric(stock_data[col], errors='coerce')
+            
+            for col in numeric_columns['sentiment_data']:
+                sentiment_data[col] = pd.to_numeric(sentiment_data[col], errors='coerce')
+            
+            for col in numeric_columns['economic_data']:
+                economic_data[col] = pd.to_numeric(economic_data[col], errors='coerce')
+            
+            # 3. 결측치 처리
+            stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
+            sentiment_data = sentiment_data.fillna(method='ffill').fillna(method='bfill')
+            economic_data = economic_data.fillna(method='ffill').fillna(method='bfill')
+            
+            # 4. 데이터 검증
+            if stock_data.empty or sentiment_data.empty or economic_data.empty:
+                raise ValueError("데이터 로드 실패: 일부 데이터가 비어있습니다.")
+            
+            logger.info(f"주가 데이터: {len(stock_data)}행")
+            logger.info(f"감성 데이터: {len(sentiment_data)}행")
+            logger.info(f"경제 데이터: {len(economic_data)}행")
+            
             return stock_data, sentiment_data, economic_data
+            
         except Exception as e:
             logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
