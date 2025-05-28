@@ -18,11 +18,17 @@ def main():
         # LG전자 모델 로드
         lg_model = LGElectronicsModel()
         
+        # 데이터 로드
+        data = lg_model.load_data()
+        logger.info("데이터 로드 완료")
+        
         # 데이터 준비
-        X_train, y_train, X_val, y_val = lg_model.prepare_data()
+        X_train, y_train, X_val, y_val = lg_model.prepare_data(data)
+        logger.info("데이터 전처리 완료")
         
         # 모델 학습
         lg_model.train(X_train, y_train, X_val, y_val)
+        logger.info("모델 학습 완료")
         
         # 모델 평가
         evaluation_period = 30  # 30일 동안의 예측 평가
