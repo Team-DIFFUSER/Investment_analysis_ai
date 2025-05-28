@@ -4,7 +4,7 @@ import urllib3
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-from ai_models.database.db_config import execute_query, execute_values_query, execute_transaction
+from database.database import execute_query, execute_values_query, execute_transaction
 
 # Load environment variables
 load_dotenv()
