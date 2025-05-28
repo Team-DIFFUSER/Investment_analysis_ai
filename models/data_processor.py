@@ -104,27 +104,27 @@ class DataProcessor:
             raise
     
     def prepare_data(self, stock_data, sentiment_data, economic_data, sequence_length=20):
-        """
-        데이터 전처리 및 시퀀스 생성
-        
-        Args:
-            stock_data (pd.DataFrame): 주가 데이터
-            sentiment_data (pd.DataFrame): 감성 데이터
-            economic_data (pd.DataFrame): 경제 데이터
-            sequence_length (int): 시퀀스 길이
-            
-        Returns:
-            tuple: (X_train, y_train, X_val, y_val, scaler)
-        """
+        """데이터 전처리 및 시퀀스 생성"""
         try:
             # 데이터 병합
             merged_data = self._merge_data(stock_data, sentiment_data, economic_data)
+            
+            # 기술적 지표 추가
+            merged_data = self.add_technical_indicators(merged_data)
             
             # 특성과 타겟 분리
             features = merged_data.drop(['close'], axis=1)
             target = merged_data['close']
             
-            # 스케일링
+            # 숫자형이 아닌 컬럼 제거
+            numeric_columns = features.select_dtypes(include=[np.number]).columns
+            features = features[numeric_columns]
+            
+            # 결측치 처리
+            features = features.fillna(method='ffill').fillna(method='bfill')
+            target = target.fillna(method='ffill').fillna(method='bfill')
+            
+            # 특성 스케일링
             scaled_features = self.feature_scaler.fit_transform(features)
             scaled_target = self.price_scaler.fit_transform(target.values.reshape(-1, 1))
             
@@ -133,7 +133,7 @@ class DataProcessor:
             self.price_max = self.price_scaler.data_max_[0]
             self.feature_names = features.columns.tolist()
             
-            # 시퀀스 생성
+            # 시퀀스 데이터 생성
             X, y = self._create_sequences(scaled_features, scaled_target, sequence_length)
             
             # 학습/검증 데이터 분할
@@ -144,7 +144,7 @@ class DataProcessor:
             return X_train, y_train, X_val, y_val, self
             
         except Exception as e:
-            print(f"데이터 전처리 중 오류 발생: {e}")
+            logger.error(f"데이터 전처리 중 오류 발생: {str(e)}")
             raise
     
     def _merge_data(self, stock_data, sentiment_data, economic_data):
@@ -182,24 +182,23 @@ class DataProcessor:
         return self.price_scaler.inverse_transform(scaled_price.reshape(-1, 1)).flatten()
     
     def prepare_prediction_data(self, stock_data, sentiment_data, economic_data, sequence_length=20):
-        """
-        예측을 위한 데이터 준비
-        
-        Args:
-            stock_data (pd.DataFrame): 주가 데이터
-            sentiment_data (pd.DataFrame): 감성 데이터
-            economic_data (pd.DataFrame): 경제 데이터
-            sequence_length (int): 시퀀스 길이
-            
-        Returns:
-            np.array: 예측용 데이터
-        """
+        """예측을 위한 데이터 준비"""
         try:
             # 데이터 병합
             merged_data = self._merge_data(stock_data, sentiment_data, economic_data)
             
+            # 기술적 지표 추가
+            merged_data = self.add_technical_indicators(merged_data)
+            
             # 특성 선택
             features = merged_data.drop(['close'], axis=1)
+            
+            # 숫자형이 아닌 컬럼 제거
+            numeric_columns = features.select_dtypes(include=[np.number]).columns
+            features = features[numeric_columns]
+            
+            # 결측치 처리
+            features = features.fillna(method='ffill').fillna(method='bfill')
             
             # 스케일링
             scaled_features = self.feature_scaler.transform(features)
@@ -210,5 +209,5 @@ class DataProcessor:
             return np.array([last_sequence])
             
         except Exception as e:
-            print(f"예측 데이터 준비 중 오류 발생: {e}")
+            logger.error(f"예측 데이터 준비 중 오류 발생: {str(e)}")
             raise 
