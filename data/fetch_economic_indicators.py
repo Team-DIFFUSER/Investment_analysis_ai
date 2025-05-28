@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
-from ai_models.database.db_config import execute_query, execute_values_query, execute_transaction
+from database.database import execute_query, execute_values_query, execute_transaction
 
 def create_economic_indicators_table():
     """경제지표 데이터 테이블 생성"""

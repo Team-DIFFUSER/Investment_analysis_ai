@@ -2,7 +2,7 @@ from pykrx import stock
 import pandas as pd
 from datetime import datetime, timedelta
 import os
-from ai_models.database.db_config import execute_query, execute_values_query, execute_transaction
+from database.database import execute_query, execute_values_query, execute_transaction
 
 def create_stock_prices_table():
     """주가 데이터 테이블 생성"""
@@ -57,10 +57,30 @@ def create_stock_prices_table():
     print("Stock prices table created/updated successfully!")
 
 def get_date_range():
-    """현재 날짜를 기준으로 과거 500일의 데이터를 가져오도록 설정"""
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=500)
-    return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
+    """마지막 데이터 이후의 데이터만 가져오도록 설정"""
+    try:
+        # 데이터베이스에서 가장 최근 데이터 날짜 조회
+        query = """
+        SELECT MAX(time) as last_date
+        FROM stock_prices
+        """
+        result = execute_query(query)
+        last_date = result[0]['last_date'] if result and result[0]['last_date'] else datetime(2024, 3, 24)
+        
+        # 마지막 데이터 다음날부터 오늘까지
+        start_date = last_date + timedelta(days=1)
+        end_date = datetime.now()
+        
+        # 시작일이 종료일보다 늦은 경우 (이미 최신 데이터가 있는 경우)
+        if start_date > end_date:
+            print("이미 최신 데이터가 있습니다.")
+            return None, None
+            
+        return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
+        
+    except Exception as e:
+        print(f"날짜 범위 조회 중 오류 발생: {e}")
+        return None, None
 
 def clean_stock_code(stock_code):
     """종목코드에서 'A' 접두사 제거"""
@@ -172,6 +192,10 @@ def fetch_stock_prices():
     
     # 시작일과 종료일 설정
     start_date, end_date = get_date_range()
+    if not start_date or not end_date:
+        print("새로운 데이터가 없습니다.")
+        return None
+        
     print(f"📆 조회 기간: {start_date} ~ {end_date}")
     
     try:
@@ -232,9 +256,9 @@ def fetch_stock_prices():
                 row.get('foreign_holding'), row.get('foreign_holding_ratio')
             ) for _, row in combined_df.iterrows()])
         ]
-        execute_transaction(queries)
+        execute_values_query(queries[0][0], queries[0][1])
         
-        print(f"\n💾 모든 데이터가 데이터베이스에 저장되었습니다.")
+        print(f"\n💾 새로운 데이터가 데이터베이스에 저장되었습니다.")
         print(f"📊 통계:")
         print(f"   - 성공한 종목 수: {success_count}/{len(stock_list)}")
         print(f"   - 실패한 종목 수: {fail_count}")
