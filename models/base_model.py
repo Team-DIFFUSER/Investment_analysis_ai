@@ -7,6 +7,9 @@ import numpy as np
 import os
 import pickle
 import json
+from tensorflow.keras import mixed_precision
+import logging
+from datetime import datetime
 
 
 # GPU 설정
@@ -397,4 +400,154 @@ def get_latest_stock_price(stock_name):
         return 81800.0  # 기본값으로 최근 종가 사용
     finally:
         if conn:
-            conn.close() 
+            conn.close()
+
+class BaseModel:
+    def __init__(self, use_cloud=False):
+        self.use_cloud = use_cloud
+        self.model = None
+        self.scaler = None
+        self.config = None
+        
+        if self.use_cloud:
+            self._setup_cloud_environment()
+    
+    def _setup_cloud_environment(self):
+        """클라우드 환경 설정"""
+        # GPU 설정
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                    tf.config.set_logical_device_configuration(
+                        gpu,
+                        [tf.config.LogicalDeviceConfiguration(
+                            memory_limit=24 * 1024  # 24GB
+                        )]
+                    )
+                logging.info(f"GPU 설정 완료: {len(gpus)}개 GPU 사용 가능")
+            except RuntimeError as e:
+                logging.error(f"GPU 설정 오류: {e}")
+        
+        # Mixed Precision 설정
+        policy = mixed_precision.Policy('mixed_float16')
+        mixed_precision.set_global_policy(policy)
+        logging.info("Mixed Precision 활성화됨")
+        
+        # 클라우드 설정
+        self.config = {
+            'batch_size': 256,
+            'num_workers': 6,
+            'prefetch_factor': 2,
+            'use_mixed_precision': True
+        }
+    
+    def build_model(self):
+        """모델 구조 정의 - 하위 클래스에서 구현"""
+        raise NotImplementedError("하위 클래스에서 구현해야 합니다.")
+    
+    def prepare_data(self, data):
+        """데이터 전처리 - 하위 클래스에서 구현"""
+        raise NotImplementedError("하위 클래스에서 구현해야 합니다.")
+    
+    def train(self, X_train, y_train, X_val, y_val):
+        """모델 학습"""
+        if self.use_cloud:
+            return self._train_cloud(X_train, y_train, X_val, y_val)
+        else:
+            return self._train_local(X_train, y_train, X_val, y_val)
+    
+    def _train_cloud(self, X_train, y_train, X_val, y_val):
+        """클라우드 환경에서의 학습"""
+        # 데이터셋 최적화
+        train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+        train_dataset = train_dataset.cache()
+        train_dataset = train_dataset.shuffle(buffer_size=10000)
+        train_dataset = train_dataset.batch(self.config['batch_size'])
+        train_dataset = train_dataset.prefetch(self.config['prefetch_factor'])
+        
+        val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+        val_dataset = val_dataset.cache()
+        val_dataset = val_dataset.batch(self.config['batch_size'])
+        val_dataset = val_dataset.prefetch(self.config['prefetch_factor'])
+        
+        # 콜백 설정
+        callbacks = [
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss',
+                patience=10,
+                restore_best_weights=True
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=5,
+                min_lr=1e-6
+            ),
+            tf.keras.callbacks.ModelCheckpoint(
+                'best_model.keras',
+                monitor='val_loss',
+                save_best_only=True
+            ),
+            tf.keras.callbacks.TensorBoard(
+                log_dir='./logs',
+                histogram_freq=1
+            )
+        ]
+        
+        # 학습
+        history = self.model.fit(
+            train_dataset,
+            validation_data=val_dataset,
+            epochs=100,
+            callbacks=callbacks,
+            workers=self.config['num_workers'],
+            use_multiprocessing=True
+        )
+        
+        return history
+    
+    def _train_local(self, X_train, y_train, X_val, y_val):
+        """로컬 환경에서의 학습"""
+        callbacks = [
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss',
+                patience=10,
+                restore_best_weights=True
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=5,
+                min_lr=1e-6
+            )
+        ]
+        
+        history = self.model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=100,
+            batch_size=32,
+            callbacks=callbacks
+        )
+        
+        return history
+    
+    def predict(self, X):
+        """예측 수행"""
+        return self.model.predict(X)
+    
+    def save_model(self, path):
+        """모델 저장"""
+        self.model.save(path)
+        logging.info(f"모델이 {path}에 저장되었습니다.")
+    
+    def load_model(self, path):
+        """모델 로드"""
+        self.model = tf.keras.models.load_model(path)
+        logging.info(f"모델을 {path}에서 로드했습니다.")
+    
+    def evaluate(self, X_test, y_test):
+        """모델 평가"""
+        return self.model.evaluate(X_test, y_test) 

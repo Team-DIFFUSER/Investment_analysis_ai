@@ -1318,43 +1318,43 @@ if __name__ == "__main__":
     try:
         # 테스트 데이터에 대한 예측 수행
         predictions = ensemble.predict(X_test)
-        
+
         # 마지막 예측 결과 가져오기
         last_prediction = predictions[-1]
-        
+
         # 데이터베이스에서 가장 최근 주가 가져오기
         last_actual_price = get_latest_stock_price('LG전자')
         print(f"\n예측 기준 주가: {last_actual_price:,.0f}원")
         
         # 상대적 변화율을 실제 가격으로 변환
         predicted_prices = convert_predictions_to_prices(last_prediction, last_actual_price)
-        
-        # 실제 값과 예측 값 비교
-        target_dates = ['2024-03-25', '2024-03-26', '2024-03-27', '2024-03-28', '2024-03-31']
-        target_prices = [82800, 82700, 82400, 80000, 77200]  # 실제 가격 입력
-        
+
+        # 실제 값과 예측 값 비교 (직접 입력)
+        target_dates = ['2024-03-27', '2024-03-28', '2024-03-31', '2024-04-01', '2024-04-02']
+        target_prices = [82400, 80000, 77200, 77900, 77400]  # 실제 가격 입력
+
         # 예측 결과 시각화
         plt.figure(figsize=(12, 6))
-        
+
         # 날짜를 datetime 객체로 변환
         dates = [datetime.strptime(date, '%Y-%m-%d') for date in target_dates]
-        
+
         # 실제 가격과 예측 가격 플롯
         plt.plot(dates, target_prices, 'b-', label='실제 가격', marker='o')
         plt.plot(dates, predicted_prices, 'r--', label='예측 가격', marker='s')
-        
+
         # 그래프 스타일링
         plt.title('LG전자 주가 예측 결과 (2024년 3월)', fontsize=14)
         plt.xlabel('날짜', fontsize=12)
         plt.ylabel('주가 (원)', fontsize=12)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.legend(fontsize=12)
-        
+
         # x축 날짜 포맷 설정
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         plt.gca().xaxis.set_major_locator(mdates.DayLocator())
         plt.xticks(rotation=45)
-        
+
         # 오차율 계산 및 표시
         error_rates = [(pred - actual) / actual * 100 for pred, actual in zip(predicted_prices, target_prices)]
         for i, (date, error) in enumerate(zip(dates, error_rates)):
@@ -1364,28 +1364,28 @@ if __name__ == "__main__":
                         textcoords='offset points',
                         ha='center',
                         fontsize=10)
-        
+
         plt.tight_layout()
         plt.show()
-        
+
         # 예측 결과 상세 분석
         print("\n[예측 결과 분석]")
         print(f"{'날짜':<12} {'실제 가격':>10} {'예측 가격':>10} {'오차율':>8}")
         print("-" * 45)
         for date, actual, pred, error in zip(target_dates, target_prices, predicted_prices, error_rates):
             print(f"{date:<12} {actual:>10,d} {pred:>10.0f} {error:>7.2f}%")
-        
+
         # 전체 예측 성능 지표
         mae = mean_absolute_error(target_prices, predicted_prices)
         mse = mean_squared_error(target_prices, predicted_prices)
         rmse = np.sqrt(mse)
         mape = np.mean(np.abs(error_rates))
-        
+
         print("\n[전체 예측 성능]")
         print(f"MAE: {mae:.2f}")
         print(f"RMSE: {rmse:.2f}")
         print(f"MAPE: {mape:.2f}%")
-        
+
         # 예측 결과 저장
         for i, (date, pred, actual) in enumerate(zip(target_dates, predicted_prices, target_prices)):
             save_prediction(
@@ -1397,7 +1397,7 @@ if __name__ == "__main__":
             )
         
         print("\n✅ 예측 결과가 데이터베이스에 저장되었습니다.")
-        
+
     except Exception as e:
         print(f"\n❌ 오류 발생: {e}")
         sys.exit(1)
