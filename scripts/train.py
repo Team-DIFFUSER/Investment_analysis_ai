@@ -1,42 +1,63 @@
-import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-
-from models.stocks.lg_electronics import LGElectronicsModel
-from utils.logger import Logger
-from utils.config import Config
+import sys
 import logging
 from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+from models.stocks.lg_electronics import LGElectronicsModel
 
-# 전역 logger 설정
-logger = Logger("train_script")
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 def main():
-    logger.info("학습 시작")
-    
     try:
-        # LG전자 모델 로드
+        # 모델 초기화
         lg_model = LGElectronicsModel()
         
         # 데이터 로드
-        data = lg_model.load_data()
-        logger.info("데이터 로드 완료")
+        logger.info("데이터 로드 중...")
+        stock_data = lg_model.load_stock_data()
+        sentiment_data = lg_model.load_sentiment_data()
+        economic_data = lg_model.load_economic_data()
         
-        # 데이터 준비
-        X_train, y_train, X_val, y_val = lg_model.prepare_data(data)
-        logger.info("데이터 전처리 완료")
+        # 데이터 전처리
+        logger.info("데이터 전처리 중...")
+        X_train, y_train, X_val, y_val, scaler = lg_model.data_processor.prepare_data(
+            stock_data, sentiment_data, economic_data
+        )
         
         # 모델 학습
-        lg_model.train(X_train, y_train, X_val, y_val)
-        logger.info("모델 학습 완료")
+        logger.info("모델 학습 시작...")
+        history = lg_model.train(X_train, y_train, X_val, y_val)
         
-        # 모델 평가
-        evaluation_period = 30  # 30일 동안의 예측 평가
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=evaluation_period)
+        # 최근 30일 데이터로 평가
+        logger.info("최근 30일 데이터로 모델 평가 중...")
+        recent_data = stock_data.tail(30)
+        recent_sentiment = sentiment_data.tail(30)
+        recent_economic = economic_data.tail(30)
         
-        evaluation_results = lg_model.evaluate(start_date, end_date)
-        logger.info(f"평가 결과: {evaluation_results}")
+        X_test, y_test, _, _, _ = lg_model.data_processor.prepare_data(
+            recent_data, recent_sentiment, recent_economic
+        )
+        
+        evaluation_results = lg_model.evaluate(X_test, y_test)
+        
+        # 평가 결과 출력
+        logger.info("\n모델 평가 결과:")
+        logger.info(f"Test Loss: {evaluation_results['test_loss']:.4f}")
+        logger.info(f"MSE: {evaluation_results['mse']:.4f}")
+        logger.info(f"MAE: {evaluation_results['mae']:.4f}")
+        logger.info(f"Direction Accuracy: {evaluation_results['direction_accuracy']:.4f}")
+        
+        # 학습 곡선 저장
+        history_df = pd.DataFrame(history.history)
+        history_df.to_csv('models/history/lg_electronics_training_history.csv')
+        
+        logger.info("학습 완료!")
         
     except Exception as e:
         logger.error(f"학습 중 오류 발생: {str(e)}")

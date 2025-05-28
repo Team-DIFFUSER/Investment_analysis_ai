@@ -4,17 +4,47 @@ from sklearn.preprocessing import MinMaxScaler
 from typing import Tuple, List, Dict
 import logging
 from datetime import datetime, timedelta
+import tensorflow as tf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class DataProcessor:
+class EnhancedPriceScaler:
     def __init__(self):
         self.price_scaler = MinMaxScaler()
         self.feature_scaler = MinMaxScaler()
         self.price_min = None
         self.price_max = None
         self.feature_names = None
+        
+    def fit_transform(self, data, price_cols):
+        """데이터 스케일링"""
+        # 가격 데이터 스케일링
+        price_data = data[price_cols].values.reshape(-1, len(price_cols))
+        scaled_prices = self.price_scaler.fit_transform(price_data)
+        
+        # 나머지 특성 스케일링
+        feature_cols = [col for col in data.columns if col not in price_cols]
+        feature_data = data[feature_cols].values
+        scaled_features = self.feature_scaler.fit_transform(feature_data)
+        
+        # 스케일링된 데이터 결합
+        result = np.hstack([scaled_prices, scaled_features])
+        
+        # 범위 저장
+        self.price_min = self.price_scaler.data_min_[0]
+        self.price_max = self.price_scaler.data_max_[0]
+        self.feature_names = data.columns.tolist()
+        
+        return result
+    
+    def inverse_transform_price(self, scaled_price):
+        """스케일된 가격을 원래 가격으로 변환"""
+        return self.price_scaler.inverse_transform(scaled_price.reshape(-1, 1)).flatten()
+
+class DataProcessor:
+    def __init__(self):
+        self.scaler = EnhancedPriceScaler()
         
     def add_financial_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """재무 지표 추가"""
@@ -68,8 +98,8 @@ class DataProcessor:
         """기술적 지표 추가"""
         try:
             # 이동평균선
-            for window in [5, 20, 60, 120]:
-                df[f'MA_{window}'] = df['close'].rolling(window=window).mean()
+            for window in [5, 20, 60]:
+                df[f'MA{window}'] = df['close'].rolling(window=window).mean()
             
             # RSI
             delta = df['close'].diff()
@@ -82,17 +112,24 @@ class DataProcessor:
             exp1 = df['close'].ewm(span=12, adjust=False).mean()
             exp2 = df['close'].ewm(span=26, adjust=False).mean()
             df['MACD'] = exp1 - exp2
-            df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+            df['MACD_SIGNAL'] = df['MACD'].ewm(span=9, adjust=False).mean()
+            df['MACD_HIST'] = df['MACD'] - df['MACD_SIGNAL']
             
             # Bollinger Bands
-            df['BB_middle'] = df['close'].rolling(window=20).mean()
-            df['BB_std'] = df['close'].rolling(window=20).std()
-            df['BB_upper'] = df['BB_middle'] + (df['BB_std'] * 2)
-            df['BB_lower'] = df['BB_middle'] - (df['BB_std'] * 2)
+            df['BB_MIDDLE'] = df['close'].rolling(window=20).mean()
+            df['BB_STD'] = df['close'].rolling(window=20).std()
+            df['BB_UPPER'] = df['BB_MIDDLE'] + (df['BB_STD'] * 2)
+            df['BB_LOWER'] = df['BB_MIDDLE'] - (df['BB_STD'] * 2)
+            df['BB_PERCENT'] = (df['close'] - df['BB_LOWER']) / (df['BB_UPPER'] - df['BB_LOWER'])
             
             # 거래량 지표
-            df['Volume_MA5'] = df['volume'].rolling(window=5).mean()
-            df['Volume_MA20'] = df['volume'].rolling(window=20).mean()
+            df['VOLUME_MA5'] = df['volume'].rolling(window=5).mean()
+            df['VOLUME_MA20'] = df['volume'].rolling(window=20).mean()
+            df['VOLUME_RATIO'] = df['volume'] / df['VOLUME_MA20']
+            
+            # 모멘텀 지표
+            df['MOM'] = df['close'].pct_change(periods=10)
+            df['ROC'] = df['close'].pct_change(periods=20)
             
             # 결측치 처리
             df = df.fillna(method='ffill').fillna(method='bfill')
@@ -112,44 +149,58 @@ class DataProcessor:
             # 기술적 지표 추가
             merged_data = self.add_technical_indicators(merged_data)
             
-            # 특성과 타겟 분리
-            features = merged_data.drop(['close'], axis=1)
-            target = merged_data['close']
+            # 특성 선택
+            feature_columns = [
+                'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio',
+                'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_PERCENT',
+                'MA5', 'MA20', 'MA60', 'VOLUME_MA5', 'VOLUME_MA20',
+                'VOLUME_RATIO', 'MOM', 'ROC',
+                'finbert_positive', 'finbert_negative', 'finbert_neutral',
+                'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
+            ]
             
-            # 숫자형이 아닌 컬럼 제거
-            numeric_columns = features.select_dtypes(include=[np.number]).columns
-            features = features[numeric_columns]
-            
-            # 특성 수 로깅
-            logger.info(f"사용된 특성 수: {len(numeric_columns)}")
-            logger.info(f"특성 목록: {numeric_columns.tolist()}")
-            
-            # 결측치 처리
-            features = features.fillna(method='ffill').fillna(method='bfill')
-            target = target.fillna(method='ffill').fillna(method='bfill')
-            
-            # 특성 스케일링
-            scaled_features = self.feature_scaler.fit_transform(features)
-            scaled_target = self.price_scaler.fit_transform(target.values.reshape(-1, 1))
-            
-            # 가격 범위 저장
-            self.price_min = self.price_scaler.data_min_[0]
-            self.price_max = self.price_scaler.data_max_[0]
-            self.feature_names = features.columns.tolist()
+            # 데이터 정규화
+            price_cols = ['close']
+            scaled_data = self.scaler.fit_transform(merged_data[feature_columns], price_cols)
             
             # 시퀀스 데이터 생성
-            X, y = self._create_sequences(scaled_features, scaled_target, sequence_length)
+            X, y = [], []
+            for i in range(len(scaled_data) - sequence_length - 4):
+                # 입력 시퀀스
+                X.append(scaled_data[i:(i + sequence_length)])
+                
+                # 타겟 시퀀스 (마지막 가격을 기준으로 상대적 변화율로 변환)
+                last_price = scaled_data[i + sequence_length - 1, 0]  # 마지막 가격
+                target_prices = scaled_data[i + sequence_length:i + sequence_length + 5, 0]
+                relative_changes = (target_prices - last_price) / last_price
+                y.append(relative_changes)
             
-            # 학습/검증 데이터 분할
+            X = np.array(X)
+            y = np.array(y)
+            
+            # 학습/검증/테스트 데이터 분할 (80/10/10)
             train_size = int(len(X) * 0.8)
-            X_train, X_val = X[:train_size], X[train_size:]
-            y_train, y_val = y[:train_size], y[train_size:]
+            val_size = int(len(X) * 0.1)
             
-            # 데이터 형태 로깅
-            logger.info(f"X_train shape: {X_train.shape}")
-            logger.info(f"y_train shape: {y_train.shape}")
+            X_train = X[:train_size]
+            y_train = y[:train_size]
             
-            return X_train, y_train, X_val, y_val, self
+            X_val = X[train_size:train_size + val_size]
+            y_val = y[train_size:train_size + val_size]
+            
+            X_test = X[train_size + val_size:]
+            y_test = y[train_size + val_size:]
+            
+            logger.info("\nData shapes after preparation:")
+            logger.info(f"X_train: {X_train.shape}")
+            logger.info(f"y_train: {y_train.shape}")
+            logger.info(f"X_val: {X_val.shape}")
+            logger.info(f"y_val: {y_val.shape}")
+            logger.info(f"X_test: {X_test.shape}")
+            logger.info(f"y_test: {y_test.shape}")
+            
+            return X_train, y_train, X_val, y_val, self.scaler
             
         except Exception as e:
             logger.error(f"데이터 전처리 중 오류 발생: {str(e)}")
@@ -174,20 +225,8 @@ class DataProcessor:
             return merged
             
         except Exception as e:
-            print(f"데이터 병합 중 오류 발생: {e}")
+            logger.error(f"데이터 병합 중 오류 발생: {str(e)}")
             raise
-    
-    def _create_sequences(self, features, target, sequence_length):
-        """시퀀스 데이터 생성"""
-        X, y = [], []
-        for i in range(len(features) - sequence_length):
-            X.append(features[i:(i + sequence_length)])
-            y.append(target[i + sequence_length])
-        return np.array(X), np.array(y)
-    
-    def inverse_transform_price(self, scaled_price):
-        """스케일된 가격을 원래 가격으로 변환"""
-        return self.price_scaler.inverse_transform(scaled_price.reshape(-1, 1)).flatten()
     
     def prepare_prediction_data(self, stock_data, sentiment_data, economic_data, sequence_length=20):
         """예측을 위한 데이터 준비"""
@@ -199,20 +238,22 @@ class DataProcessor:
             merged_data = self.add_technical_indicators(merged_data)
             
             # 특성 선택
-            features = merged_data.drop(['close'], axis=1)
+            feature_columns = [
+                'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio',
+                'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_PERCENT',
+                'MA5', 'MA20', 'MA60', 'VOLUME_MA5', 'VOLUME_MA20',
+                'VOLUME_RATIO', 'MOM', 'ROC',
+                'finbert_positive', 'finbert_negative', 'finbert_neutral',
+                'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
+            ]
             
-            # 숫자형이 아닌 컬럼 제거
-            numeric_columns = features.select_dtypes(include=[np.number]).columns
-            features = features[numeric_columns]
-            
-            # 결측치 처리
-            features = features.fillna(method='ffill').fillna(method='bfill')
-            
-            # 스케일링
-            scaled_features = self.feature_scaler.transform(features)
+            # 데이터 정규화
+            price_cols = ['close']
+            scaled_data = self.scaler.fit_transform(merged_data[feature_columns], price_cols)
             
             # 마지막 시퀀스만 선택
-            last_sequence = scaled_features[-sequence_length:]
+            last_sequence = scaled_data[-sequence_length:]
             
             return np.array([last_sequence])
             
