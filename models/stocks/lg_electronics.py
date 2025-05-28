@@ -68,7 +68,7 @@ class LGElectronicsModel(BaseModel):
         x = tf.keras.layers.Dropout(0.2)(x)
         
         # 출력 레이어 (5일 예측)
-        outputs = tf.keras.layers.Dense(5, activation='tanh')(x) * 0.05
+        outputs = tf.keras.layers.Dense(5)(x)
         
         # 모델 생성
         self.model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
@@ -80,6 +80,8 @@ class LGElectronicsModel(BaseModel):
             loss=enhanced_weighted_time_mse,
             metrics=['mae']
         )
+        
+        logger.info(f"모델 구조 생성 완료 - 입력: {self.sequence_length}x{self.n_features}, 출력: 5")
     
     def prepare_data(self, data):
         """LG전자 데이터 전처리"""
