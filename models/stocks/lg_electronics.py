@@ -34,6 +34,108 @@ class LGElectronicsModel(BaseModel):
         self.n_features = None  # 데이터 로드 시 설정
         self.model = None  # build_model은 데이터 로드 후에 호출
     
+    def load_stock_data(self) -> pd.DataFrame:
+        """주가 데이터 로드"""
+        try:
+            query = """
+            SELECT 
+                time as date,
+                stock_code as stock_code,
+                stock_name as stock_name,
+                open_price as open,
+                high_price as high,
+                low_price as low,
+                close_price as close,
+                volume as volume,
+                market_cap as market_cap,
+                foreign_holding as foreign_holding,
+                foreign_holding_ratio as foreign_ratio
+            FROM stock_prices
+            WHERE stock_name = %s
+            ORDER BY time;
+            """
+            stock_data = pd.DataFrame(self.db_manager.execute_query(query, (self.stock_name,)), columns=[
+                'date', 'stock_code', 'stock_name', 'open', 'high', 'low', 
+                'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio'
+            ])
+            
+            # 숫자형 컬럼 변환
+            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio']
+            for col in numeric_columns:
+                stock_data[col] = stock_data[col].astype(float)
+            
+            return stock_data
+            
+        except Exception as e:
+            logger.error(f"주가 데이터 로드 중 오류 발생: {str(e)}")
+            raise
+    
+    def load_sentiment_data(self) -> pd.DataFrame:
+        """감성 데이터 로드"""
+        try:
+            query = """
+            SELECT 
+                pub_date as date, title,
+                finbert_positive, finbert_negative, finbert_neutral,
+                finbert_sentiment
+            FROM news_sentiment
+            ORDER BY pub_date;
+            """
+            sentiment_data = pd.DataFrame(self.db_manager.execute_query(query), columns=[
+                'date', 'title', 'finbert_positive', 'finbert_negative', 
+                'finbert_neutral', 'finbert_sentiment'
+            ])
+            
+            # 감성 점수 변환
+            sentiment_columns = ['finbert_positive', 'finbert_negative', 'finbert_neutral']
+            for col in sentiment_columns:
+                sentiment_data[col] = pd.to_numeric(sentiment_data[col], errors='coerce')
+            
+            return sentiment_data
+            
+        except Exception as e:
+            logger.error(f"감성 데이터 로드 중 오류 발생: {str(e)}")
+            raise
+    
+    def load_economic_data(self) -> pd.DataFrame:
+        """경제지표 데이터 로드"""
+        try:
+            query = """
+            SELECT 
+                time as date,
+                treasury_10y,
+                dollar_index,
+                usd_krw,
+                korean_bond_10y
+            FROM economic_indicators
+            ORDER BY time;
+            """
+            economic_data = pd.DataFrame(self.db_manager.execute_query(query), columns=[
+                'date', 'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
+            ])
+            
+            # 경제지표 변환
+            economic_columns = ['treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y']
+            for col in economic_columns:
+                economic_data[col] = pd.to_numeric(economic_data[col], errors='coerce')
+            
+            return economic_data
+            
+        except Exception as e:
+            logger.error(f"경제지표 데이터 로드 중 오류 발생: {str(e)}")
+            raise
+    
+    def load_data(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """모든 데이터 로드"""
+        try:
+            stock_data = self.load_stock_data()
+            sentiment_data = self.load_sentiment_data()
+            economic_data = self.load_economic_data()
+            return stock_data, sentiment_data, economic_data
+        except Exception as e:
+            logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
+            raise
+    
     def build_model(self):
         """LG전자 특화 모델 구조 정의"""
         if self.n_features is None:
@@ -105,82 +207,6 @@ class LGElectronicsModel(BaseModel):
             logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
             raise
     
-    def load_data(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """데이터 로드"""
-        try:
-            # 주가 데이터 로드
-            query = """
-            SELECT 
-                time as date,
-                stock_code as stock_code,
-                stock_name as stock_name,
-                open_price as open,
-                high_price as high,
-                low_price as low,
-                close_price as close,
-                volume as volume,
-                market_cap as market_cap,
-                foreign_holding as foreign_holding,
-                foreign_holding_ratio as foreign_ratio
-            FROM stock_prices
-            WHERE stock_name = %s
-            ORDER BY time;
-            """
-            stock_data = pd.DataFrame(self.db_manager.execute_query(query, (self.stock_name,)), columns=[
-                'date', 'stock_code', 'stock_name', 'open', 'high', 'low', 
-                'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio'
-            ])
-            
-            # 감성 데이터 로드
-            query = """
-            SELECT 
-                pub_date as date, title,
-                finbert_positive, finbert_negative, finbert_neutral,
-                finbert_sentiment
-            FROM news_sentiment
-            ORDER BY pub_date;
-            """
-            sentiment_data = pd.DataFrame(self.db_manager.execute_query(query), columns=[
-                'date', 'title', 'finbert_positive', 'finbert_negative', 
-                'finbert_neutral', 'finbert_sentiment'
-            ])
-            
-            # 경제지표 데이터 로드
-            query = """
-            SELECT 
-                time as date,
-                treasury_10y,
-                dollar_index,
-                usd_krw,
-                korean_bond_10y
-            FROM economic_indicators
-            ORDER BY time;
-            """
-            economic_data = pd.DataFrame(self.db_manager.execute_query(query), columns=[
-                'date', 'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
-            ])
-            
-            # 숫자형 컬럼 변환
-            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio']
-            for col in numeric_columns:
-                stock_data[col] = stock_data[col].astype(float)
-            
-            # 감성 점수 변환
-            sentiment_columns = ['finbert_positive', 'finbert_negative', 'finbert_neutral']
-            for col in sentiment_columns:
-                sentiment_data[col] = pd.to_numeric(sentiment_data[col], errors='coerce')
-            
-            # 경제지표 변환
-            economic_columns = ['treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y']
-            for col in economic_columns:
-                economic_data[col] = pd.to_numeric(economic_data[col], errors='coerce')
-            
-            return stock_data, sentiment_data, economic_data
-            
-        except Exception as e:
-            logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
-            raise
-    
     def get_latest_price(self) -> float:
         """가장 최근 주가 조회"""
         try:
@@ -247,37 +273,36 @@ class LGElectronicsModel(BaseModel):
             logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
     
-    def evaluate(self, start_date: datetime, end_date: datetime) -> Dict:
+    def evaluate(self, X_test, y_test) -> Dict:
         """모델 평가"""
         try:
+            if self.model is None:
+                raise ValueError("모델이 학습되지 않았습니다.")
+            
+            # 모델 평가
+            test_loss = self.model.evaluate(X_test, y_test, verbose=0)
+            
             # 예측 수행
-            predictions = self.predict_next_five_days(start_date)
+            predictions = self.model.predict(X_test)
             
-            # 실제 가격 데이터 조회
-            query = """
-            SELECT time, close_price
-            FROM stock_prices
-            WHERE stock_name = %s
-            AND time BETWEEN %s AND %s
-            ORDER BY time
-            """
-            actual_data = pd.DataFrame(
-                self.db_manager.execute_query(query, (self.stock_name, start_date, end_date)),
-                columns=['date', 'actual_price']
-            )
+            # 평가 지표 계산
+            mse = np.mean((y_test - predictions) ** 2)
+            mae = np.mean(np.abs(y_test - predictions))
             
-            # 예측 결과와 실제 가격 비교
-            pred_dates = [p['date'] for p in predictions]
-            pred_prices = [p['price'] for p in predictions]
-            actual_prices = actual_data['actual_price'].values
+            # 방향성 정확도 계산
+            direction_true = np.sign(y_test)
+            direction_pred = np.sign(predictions)
+            direction_accuracy = np.mean(direction_true == direction_pred)
             
-            # 평가 수행
-            evaluation = evaluate_predictions(pred_prices, pred_dates, actual_prices)
-            
-            return evaluation
+            return {
+                'test_loss': test_loss,
+                'mse': mse,
+                'mae': mae,
+                'direction_accuracy': direction_accuracy
+            }
             
         except Exception as e:
-            logger.error(f"평가 중 오류 발생: {str(e)}")
+            logger.error(f"모델 평가 중 오류 발생: {str(e)}")
             raise
 
 if __name__ == "__main__":
