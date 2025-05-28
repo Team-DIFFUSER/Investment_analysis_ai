@@ -32,7 +32,7 @@ class LGElectronicsModel(BaseModel):
         self.evaluator = ModelEvaluator()
         self.db_manager = DatabaseManager()
         self.n_features = None  # 데이터 로드 시 설정
-        self.build_model()
+        self.model = None  # build_model은 데이터 로드 후에 호출
     
     def build_model(self):
         """LG전자 특화 모델 구조 정의"""
@@ -92,7 +92,9 @@ class LGElectronicsModel(BaseModel):
                 stock_data, sentiment_data, economic_data, self.sequence_length
             )
             
+            # 특성 수 설정 및 모델 빌드
             self.n_features = X_train.shape[2]
+            self.build_model()
             self.scaler = scaler
             
             return X_train, y_train, X_val, y_val
