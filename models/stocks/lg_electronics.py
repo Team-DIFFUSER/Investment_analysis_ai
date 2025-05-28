@@ -404,10 +404,10 @@ class LGElectronicsModel(BaseModel):
             direction_accuracy = np.mean(direction_true == direction_pred)
             
             return {
-                'test_loss': test_loss,
-                'mse': mse,
-                'mae': mae,
-                'direction_accuracy': direction_accuracy
+                'test_loss': float(test_loss[0]),  # 첫 번째 값만 반환
+                'mse': float(mse),
+                'mae': float(mae),
+                'direction_accuracy': float(direction_accuracy)
             }
             
         except Exception as e:
