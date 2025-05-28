@@ -147,15 +147,16 @@ class DataProcessor:
             if stock_data.empty or sentiment_data.empty or economic_data.empty:
                 raise ValueError("입력 데이터가 비어있습니다.")
             
+            logger.info("데이터 전처리 시작")
+            logger.info(f"주가 데이터 크기: {stock_data.shape}")
+            logger.info(f"감성 데이터 크기: {sentiment_data.shape}")
+            logger.info(f"경제 데이터 크기: {economic_data.shape}")
+            
             # 데이터 병합
             merged_data = self._merge_data(stock_data, sentiment_data, economic_data)
             
-            # 결측치 처리
-            merged_data = merged_data.fillna(method='ffill').fillna(method='bfill')
-            if merged_data.isnull().any().any():
-                raise ValueError("결측치가 남아있습니다.")
-            
             # 기술적 지표 추가
+            logger.info("기술적 지표 추가 중...")
             merged_data = self.add_technical_indicators(merged_data)
             
             # 특성 선택
@@ -172,13 +173,23 @@ class DataProcessor:
             # 컬럼 존재 여부 확인
             missing_columns = [col for col in feature_columns if col not in merged_data.columns]
             if missing_columns:
+                logger.error(f"누락된 컬럼: {missing_columns}")
                 raise ValueError(f"다음 컬럼이 데이터에 없습니다: {missing_columns}")
             
+            # 데이터 정규화 전 결측치 확인
+            logger.info("데이터 정규화 전 결측치 확인:")
+            null_counts = merged_data[feature_columns].isnull().sum()
+            for col in feature_columns:
+                if null_counts[col] > 0:
+                    logger.warning(f"{col}: {null_counts[col]}개의 결측치")
+            
             # 데이터 정규화
+            logger.info("데이터 정규화 중...")
             price_cols = ['close']
             scaled_data = self.scaler.fit_transform(merged_data[feature_columns], price_cols)
             
             # 시퀀스 데이터 생성
+            logger.info("시퀀스 데이터 생성 중...")
             X, y = [], []
             for i in range(len(scaled_data) - sequence_length - 4):
                 # 입력 시퀀스
@@ -209,7 +220,7 @@ class DataProcessor:
             X_test = X[train_size + val_size:]
             y_test = y[train_size + val_size:]
             
-            logger.info("\nData shapes after preparation:")
+            logger.info("\n데이터 준비 완료:")
             logger.info(f"X_train: {X_train.shape}")
             logger.info(f"y_train: {y_train.shape}")
             logger.info(f"X_val: {X_val.shape}")
@@ -231,13 +242,46 @@ class DataProcessor:
             sentiment_data = sentiment_data.set_index('date')
             economic_data = economic_data.set_index('date')
             
+            # 데이터 병합 전 결측치 확인
+            logger.info("데이터 병합 전 결측치 확인:")
+            logger.info(f"주가 데이터 결측치: {stock_data.isnull().sum().sum()}")
+            logger.info(f"감성 데이터 결측치: {sentiment_data.isnull().sum().sum()}")
+            logger.info(f"경제 데이터 결측치: {economic_data.isnull().sum().sum()}")
+            
             # 데이터 병합
             merged = pd.merge(stock_data, sentiment_data, left_index=True, right_index=True, how='left')
             merged = pd.merge(merged, economic_data, left_index=True, right_index=True, how='left')
             
             # 결측치 처리
+            # 1. 숫자형 컬럼은 0으로 채우기
+            numeric_columns = merged.select_dtypes(include=[np.number]).columns
+            merged[numeric_columns] = merged[numeric_columns].fillna(0)
+            
+            # 2. 시계열 특성을 고려한 전진 채우기
             merged = merged.fillna(method='ffill')
+            
+            # 3. 남은 결측치는 이전 값으로 채우기
             merged = merged.fillna(method='bfill')
+            
+            # 4. 그래도 남은 결측치는 0으로 채우기
+            merged = merged.fillna(0)
+            
+            # 결측치 처리 후 확인
+            remaining_nulls = merged.isnull().sum()
+            if remaining_nulls.any():
+                logger.warning("남아있는 결측치:")
+                for col in remaining_nulls[remaining_nulls > 0].index:
+                    logger.warning(f"{col}: {remaining_nulls[col]}개")
+                raise ValueError("결측치 처리 후에도 결측치가 남아있습니다.")
+            
+            # 데이터 정렬
+            merged = merged.sort_index()
+            
+            # 중복 제거
+            merged = merged[~merged.index.duplicated(keep='first')]
+            
+            logger.info("데이터 병합 완료")
+            logger.info(f"최종 데이터 크기: {merged.shape}")
             
             return merged
             
