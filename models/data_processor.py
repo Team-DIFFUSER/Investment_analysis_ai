@@ -143,8 +143,17 @@ class DataProcessor:
     def prepare_data(self, stock_data, sentiment_data, economic_data, sequence_length=20):
         """데이터 전처리 및 시퀀스 생성"""
         try:
+            # 데이터 검증
+            if stock_data.empty or sentiment_data.empty or economic_data.empty:
+                raise ValueError("입력 데이터가 비어있습니다.")
+            
             # 데이터 병합
             merged_data = self._merge_data(stock_data, sentiment_data, economic_data)
+            
+            # 결측치 처리
+            merged_data = merged_data.fillna(method='ffill').fillna(method='bfill')
+            if merged_data.isnull().any().any():
+                raise ValueError("결측치가 남아있습니다.")
             
             # 기술적 지표 추가
             merged_data = self.add_technical_indicators(merged_data)
@@ -159,6 +168,11 @@ class DataProcessor:
                 'finbert_positive', 'finbert_negative', 'finbert_neutral',
                 'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
             ]
+            
+            # 컬럼 존재 여부 확인
+            missing_columns = [col for col in feature_columns if col not in merged_data.columns]
+            if missing_columns:
+                raise ValueError(f"다음 컬럼이 데이터에 없습니다: {missing_columns}")
             
             # 데이터 정규화
             price_cols = ['close']
@@ -178,6 +192,9 @@ class DataProcessor:
             
             X = np.array(X)
             y = np.array(y)
+            
+            if len(X) == 0 or len(y) == 0:
+                raise ValueError("시퀀스 데이터가 생성되지 않았습니다.")
             
             # 학습/검증/테스트 데이터 분할 (80/10/10)
             train_size = int(len(X) * 0.8)
