@@ -34,6 +34,53 @@ class LGElectronicsModel(BaseModel):
         self.n_features = None  # 데이터 로드 시 설정
         self.model = None  # build_model은 데이터 로드 후에 호출
     
+    def train(self, X_train, y_train, X_val, y_val):
+        """모델 학습"""
+        try:
+            # 특성 수 설정 및 모델 빌드
+            if self.n_features is None:
+                self.n_features = X_train.shape[2]
+                logger.info(f"특성 수 설정: {self.n_features}")
+            
+            # 모델 빌드
+            self.build_model()
+            
+            # 콜백 설정
+            callbacks = [
+                tf.keras.callbacks.EarlyStopping(
+                    monitor='val_loss',
+                    patience=10,
+                    restore_best_weights=True
+                ),
+                tf.keras.callbacks.ModelCheckpoint(
+                    'models/checkpoints/lg_electronics_best.h5',
+                    monitor='val_loss',
+                    save_best_only=True
+                ),
+                tf.keras.callbacks.ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.5,
+                    patience=5,
+                    min_lr=1e-6
+                )
+            ]
+            
+            # 모델 학습
+            history = self.model.fit(
+                X_train, y_train,
+                validation_data=(X_val, y_val),
+                epochs=100,
+                batch_size=32,
+                callbacks=callbacks,
+                verbose=1
+            )
+            
+            return history
+            
+        except Exception as e:
+            logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+            raise
+    
     def load_stock_data(self) -> pd.DataFrame:
         """주가 데이터 로드"""
         try:
@@ -184,28 +231,6 @@ class LGElectronicsModel(BaseModel):
         )
         
         logger.info(f"모델 구조 생성 완료 - 입력: {self.sequence_length}x{self.n_features}, 출력: 5")
-    
-    def prepare_data(self, data):
-        """LG전자 데이터 전처리"""
-        try:
-            # 데이터 로드
-            stock_data, sentiment_data, economic_data = self.load_data()
-            
-            # 데이터 전처리
-            X_train, y_train, X_val, y_val, scaler = self.data_processor.prepare_data(
-                stock_data, sentiment_data, economic_data, self.sequence_length
-            )
-            
-            # 특성 수 설정 및 모델 빌드
-            self.n_features = X_train.shape[2]
-            self.build_model()
-            self.scaler = scaler
-            
-            return X_train, y_train, X_val, y_val
-            
-        except Exception as e:
-            logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
-            raise
     
     def get_latest_price(self) -> float:
         """가장 최근 주가 조회"""

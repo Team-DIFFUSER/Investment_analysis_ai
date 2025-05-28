@@ -29,6 +29,14 @@ def main():
         sentiment_data = lg_model.load_sentiment_data()
         economic_data = lg_model.load_economic_data()
         
+        # 데이터 검증
+        if stock_data.empty or sentiment_data.empty or economic_data.empty:
+            raise ValueError("데이터 로드 실패: 일부 데이터가 비어있습니다.")
+        
+        logger.info(f"주가 데이터: {len(stock_data)}행")
+        logger.info(f"감성 데이터: {len(sentiment_data)}행")
+        logger.info(f"경제 데이터: {len(economic_data)}행")
+        
         # 데이터 전처리
         logger.info("데이터 전처리 중...")
         X_train, y_train, X_val, y_val, scaler = lg_model.data_processor.prepare_data(
@@ -45,9 +53,13 @@ def main():
         recent_sentiment = sentiment_data.tail(30)
         recent_economic = economic_data.tail(30)
         
+        # 평가 데이터 준비
         X_test, y_test, _, _, _ = lg_model.data_processor.prepare_data(
             recent_data, recent_sentiment, recent_economic
         )
+        
+        if len(X_test) == 0 or len(y_test) == 0:
+            raise ValueError("평가 데이터가 생성되지 않았습니다.")
         
         evaluation_results = lg_model.evaluate(X_test, y_test)
         
@@ -60,6 +72,7 @@ def main():
         
         # 학습 곡선 저장
         history_df = pd.DataFrame(history.history)
+        os.makedirs('models/history', exist_ok=True)
         history_df.to_csv('models/history/lg_electronics_training_history.csv')
         
         logger.info("학습 완료!")
