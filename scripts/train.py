@@ -4,6 +4,11 @@ import logging
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+
+# 프로젝트 루트 디렉토리를 Python 경로에 추가
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+
 from models.stocks.lg_electronics import LGElectronicsModel
 
 # 로깅 설정
