@@ -120,6 +120,10 @@ class DataProcessor:
             numeric_columns = features.select_dtypes(include=[np.number]).columns
             features = features[numeric_columns]
             
+            # 특성 수 로깅
+            logger.info(f"사용된 특성 수: {len(numeric_columns)}")
+            logger.info(f"특성 목록: {numeric_columns.tolist()}")
+            
             # 결측치 처리
             features = features.fillna(method='ffill').fillna(method='bfill')
             target = target.fillna(method='ffill').fillna(method='bfill')
@@ -140,6 +144,10 @@ class DataProcessor:
             train_size = int(len(X) * 0.8)
             X_train, X_val = X[:train_size], X[train_size:]
             y_train, y_val = y[:train_size], y[train_size:]
+            
+            # 데이터 형태 로깅
+            logger.info(f"X_train shape: {X_train.shape}")
+            logger.info(f"y_train shape: {y_train.shape}")
             
             return X_train, y_train, X_val, y_val, self
             
