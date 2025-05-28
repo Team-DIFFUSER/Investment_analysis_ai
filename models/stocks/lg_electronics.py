@@ -107,44 +107,44 @@ class LGElectronicsModel(BaseModel):
             # 주가 데이터 로드
             query = """
             SELECT 
-                time as 기준일자,
-                stock_code as 종목코드,
-                stock_name as 종목명,
-                open_price as 시가,
-                high_price as 고가,
-                low_price as 저가,
-                close_price as 현재가,
-                volume as 거래량,
-                market_cap as 시가총액,
-                foreign_holding as 외국인보유,
-                foreign_holding_ratio as 외국인비율
+                time as date,
+                stock_code as stock_code,
+                stock_name as stock_name,
+                open_price as open,
+                high_price as high,
+                low_price as low,
+                close_price as close,
+                volume as volume,
+                market_cap as market_cap,
+                foreign_holding as foreign_holding,
+                foreign_holding_ratio as foreign_ratio
             FROM stock_prices
             WHERE stock_name = %s
             ORDER BY time;
             """
             stock_data = pd.DataFrame(self.db_manager.execute_query(query, (self.stock_name,)), columns=[
-                '기준일자', '종목코드', '종목명', '시가', '고가', '저가', 
-                '현재가', '거래량', '시가총액', '외국인보유', '외국인비율'
+                'date', 'stock_code', 'stock_name', 'open', 'high', 'low', 
+                'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio'
             ])
             
             # 감성 데이터 로드
             query = """
             SELECT 
-                pub_date, title,
+                pub_date as date, title,
                 finbert_positive, finbert_negative, finbert_neutral,
                 finbert_sentiment
             FROM news_sentiment
             ORDER BY pub_date;
             """
             sentiment_data = pd.DataFrame(self.db_manager.execute_query(query), columns=[
-                'PubDate', 'Title', 'finbert_positive', 'finbert_negative', 
+                'date', 'title', 'finbert_positive', 'finbert_negative', 
                 'finbert_neutral', 'finbert_sentiment'
             ])
             
             # 경제지표 데이터 로드
             query = """
             SELECT 
-                time,
+                time as date,
                 treasury_10y,
                 dollar_index,
                 usd_krw,
@@ -153,11 +153,11 @@ class LGElectronicsModel(BaseModel):
             ORDER BY time;
             """
             economic_data = pd.DataFrame(self.db_manager.execute_query(query), columns=[
-                'time', 'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
+                'date', 'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
             ])
             
             # 숫자형 컬럼 변환
-            numeric_columns = ['시가', '고가', '저가', '현재가', '거래량', '시가총액', '외국인보유', '외국인비율']
+            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio']
             for col in numeric_columns:
                 stock_data[col] = stock_data[col].astype(float)
             
