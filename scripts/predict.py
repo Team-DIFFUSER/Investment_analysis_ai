@@ -5,10 +5,11 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from models.stocks.lg_electronics import LGElectronicsModel
 from utils.logger import Logger
 from utils.config import Config
-from database.database import Database
+from database.database import DatabaseManager
 import logging
 from datetime import datetime, timedelta
 import pandas as pd
+import numpy as np
 
 # 전역 logger 설정
 logger = Logger("predict_script")
@@ -33,7 +34,7 @@ def get_next_five_business_days(start_date):
 
 def save_prediction(stock_code, stock_name, prediction_date, target_date, predicted_price):
     """예측 결과를 데이터베이스에 저장"""
-    db = Database()
+    db = DatabaseManager()
     try:
         query = """
         INSERT INTO predicted_stock_prices (
