@@ -344,10 +344,14 @@ class DataProcessor:
             # 특성 선택
             feature_columns = [
                 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio',
+                'price_change_5d', 'price_change_10d',
+                'volatility_5d', 'volatility_10d',
+                'vwap',
+                'momentum_5d', 'momentum_10d', 'momentum_20d',
                 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
                 'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_PERCENT',
-                'MA5', 'MA20', 'MA60', 'VOLUME_MA5', 'VOLUME_MA20',
-                'VOLUME_RATIO', 'MOM', 'ROC',
+                'MA5', 'MA20', 'MA60',
+                'VOLUME_MA5', 'VOLUME_MA20', 'VOLUME_RATIO',
                 'finbert_positive', 'finbert_negative', 'finbert_neutral',
                 'treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y'
             ]
