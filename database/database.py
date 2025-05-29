@@ -182,6 +182,111 @@ class DatabaseManager:
         self.execute_query(query, params)
         logger.info(f"예측 결과 저장 완료: {stock_code} - {target_date}")
 
+    def get_stock_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """주가 데이터 조회"""
+        try:
+            query = """
+            SELECT 
+                time as date,
+                stock_code,
+                stock_name,
+                open_price as open,
+                high_price as high,
+                low_price as low,
+                close_price as close,
+                volume,
+                market_cap,
+                foreign_holding,
+                foreign_holding_ratio as foreign_ratio
+            FROM stock_prices
+            WHERE stock_code = %s
+            AND time BETWEEN %s AND %s
+            ORDER BY time;
+            """
+            results = self.execute_query(query, (stock_code, start_date, end_date))
+            
+            if not results:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(results)
+            
+            # 숫자형 컬럼 변환
+            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio']
+            for col in numeric_columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"주가 데이터 조회 중 오류 발생: {str(e)}")
+            raise
+    
+    def get_sentiment_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """감성 데이터 조회"""
+        try:
+            query = """
+            SELECT 
+                pub_date as date,
+                title,
+                finbert_positive,
+                finbert_negative,
+                finbert_neutral,
+                finbert_sentiment
+            FROM news_sentiment
+            WHERE stock_code = %s
+            AND pub_date BETWEEN %s AND %s
+            ORDER BY pub_date;
+            """
+            results = self.execute_query(query, (stock_code, start_date, end_date))
+            
+            if not results:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(results)
+            
+            # 감성 점수 변환
+            sentiment_columns = ['finbert_positive', 'finbert_negative', 'finbert_neutral']
+            for col in sentiment_columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"감성 데이터 조회 중 오류 발생: {str(e)}")
+            raise
+    
+    def get_economic_data(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """경제지표 데이터 조회"""
+        try:
+            query = """
+            SELECT 
+                time as date,
+                treasury_10y,
+                dollar_index,
+                usd_krw,
+                korean_bond_10y
+            FROM economic_indicators
+            WHERE time BETWEEN %s AND %s
+            ORDER BY time;
+            """
+            results = self.execute_query(query, (start_date, end_date))
+            
+            if not results:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(results)
+            
+            # 경제지표 변환
+            economic_columns = ['treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y']
+            for col in economic_columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"경제지표 데이터 조회 중 오류 발생: {str(e)}")
+            raise
+
 def test_connection():
     try:
         conn = psycopg2.connect(**DB_PARAMS)
