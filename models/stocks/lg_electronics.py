@@ -33,6 +33,22 @@ class LGElectronicsModel(BaseModel):
         self.db_manager = DatabaseManager()
         self.n_features = None  # 데이터 로드 시 설정
         self.model = None  # build_model은 데이터 로드 후에 호출
+        self.load_model()  # 모델 로드
+    
+    def load_model(self):
+        """저장된 모델 로드"""
+        try:
+            model_path = 'models/checkpoints/lg_electronics_best.h5'
+            if os.path.exists(model_path):
+                self.model = tf.keras.models.load_model(model_path, 
+                    custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse})
+                logger.info("모델 로드 완료")
+            else:
+                logger.error(f"모델 파일을 찾을 수 없습니다: {model_path}")
+                raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {model_path}")
+        except Exception as e:
+            logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+            raise
     
     def train(self, X_train, y_train, X_val, y_val):
         """모델 학습"""
@@ -343,40 +359,39 @@ class LGElectronicsModel(BaseModel):
     def predict_next_five_days(self, start_date: datetime) -> List[Dict]:
         """다음 5일 예측"""
         try:
-            # 현재 가격 가져오기
-            last_price = self.get_latest_price()
+            if self.model is None:
+                raise ValueError("모델이 로드되지 않았습니다. 먼저 모델을 로드해주세요.")
             
             # 데이터 로드
-            stock_data, sentiment_data, economic_data = self.load_data()
+            stock_data = self.load_stock_data()
+            sentiment_data = self.load_sentiment_data()
+            economic_data = self.load_economic_data()
+            
+            logger.info(f"주가 데이터: {len(stock_data)}행")
+            logger.info(f"감성 데이터: {len(sentiment_data)}행")
+            logger.info(f"경제 데이터: {len(economic_data)}행")
             
             # 예측 데이터 준비
             X = self.data_processor.prepare_prediction_data(
                 stock_data, sentiment_data, economic_data, self.sequence_length
             )
             
-            # 예측
+            # 예측 수행
             predictions = self.model.predict(X)
             
-            # 예측 결과를 실제 가격으로 변환
-            predicted_prices = []
-            current_price = last_price
+            # 예측 결과를 날짜와 함께 반환
+            result = []
+            current_date = start_date
             
-            for pred in predictions[0]:
-                next_price = current_price * (1 + pred)
-                next_price = round(next_price / 100) * 100
-                predicted_prices.append(next_price)
-                current_price = next_price
-            
-            # 예측 결과 생성
-            results = []
-            for i, price in enumerate(predicted_prices):
-                target_date = start_date + timedelta(days=i+1)
-                results.append({
-                    'date': target_date,
-                    'price': price
+            for i in range(5):
+                # 다음 영업일 계산
+                current_date = get_next_business_day(current_date)
+                result.append({
+                    'date': current_date,
+                    'price': float(predictions[0][i])
                 })
             
-            return results
+            return result
             
         except Exception as e:
             logger.error(f"예측 중 오류 발생: {str(e)}")
