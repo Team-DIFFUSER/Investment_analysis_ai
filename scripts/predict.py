@@ -1,18 +1,20 @@
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-
-from models.stocks.lg_electronics import LGElectronicsModel
-from utils.logger import Logger
-from utils.config import Config
-from database.database import DatabaseManager
 import logging
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+from typing import List, Dict
 
-# 전역 logger 설정
-logger = Logger("predict_script")
+# 프로젝트 루트 디렉토리를 Python 경로에 추가
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from models.stocks.lg_electronics import LGElectronicsModel
+from database.database import DatabaseManager
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('predict_script')
 
 # 2025년 한국 공휴일 목록
 KOREAN_HOLIDAYS_2025 = [
@@ -33,26 +35,18 @@ KOREAN_HOLIDAYS_2025 = [
     datetime(2025, 12, 25), # 크리스마스
 ]
 
-def is_holiday(date):
+def is_holiday(date: datetime) -> bool:
     """주말과 공휴일 체크"""
-    # 주말 체크 (5: 토요일, 6: 일요일)
-    if date.weekday() >= 5:
-        return True
-    
-    # 공휴일 체크
-    if date in KOREAN_HOLIDAYS_2025:
-        return True
-    
-    return False
+    return date.weekday() >= 5 or date in KOREAN_HOLIDAYS_2025
 
-def get_next_business_day(date):
-    """다음 영업일 계산 (주말과 공휴일 제외)"""
+def get_next_business_day(date: datetime) -> datetime:
+    """다음 영업일 계산"""
     next_day = date + timedelta(days=1)
     while is_holiday(next_day):
         next_day += timedelta(days=1)
     return next_day
 
-def get_next_five_business_days(start_date):
+def get_next_five_business_days(start_date: datetime) -> List[datetime]:
     """다음 5개 영업일 계산"""
     business_days = []
     current_date = start_date
@@ -148,81 +142,25 @@ def save_prediction(stock_code, stock_name, prediction_date, target_date, predic
         db.close()
 
 def main():
-    logger.info("예측 시작")
-    
     try:
-        # LG전자 모델 로드
+        # 시작 날짜 설정 (2025년 6월 3일)
+        start_date = datetime(2025, 6, 3)
+        
+        # LG전자 모델 초기화
         lg_model = LGElectronicsModel()
-        
-        # 예측 시작일 설정
-        start_date = datetime(2025, 3, 27)
-        
-        # 최근 주가 조회
-        last_actual_price = get_latest_stock_price('LG전자')
-        if last_actual_price is None:
-            raise ValueError("최근 주가를 조회할 수 없습니다.")
-        
-        logger.info(f"예측 기준 주가: {last_actual_price:,.0f}원")
-        
-        # 다음 5개 영업일 계산
-        business_days = get_next_five_business_days(start_date)
-        
-        # 이전 예측값 조회
-        end_date = business_days[-1]
-        previous_predictions = get_previous_predictions('LG전자', start_date, end_date)
         
         # 예측 수행
         predictions = lg_model.predict_next_five_days(start_date)
         
-        # 예측값 조정
-        adjusted_predictions = []
-        for i, pred in enumerate(predictions):
-            target_date = pred['date']
-            if i == 0:
-                # 첫날은 실제값 사용
-                predicted_price = last_actual_price
-            else:
-                # 이전 예측값이 있는 경우 조정
-                if not previous_predictions.empty and i < len(previous_predictions):
-                    prev_pred = previous_predictions.iloc[i-1]['predicted_price']
-                    next_pred = pred['price']
-                    adjustment = calculate_prediction_adjustment(
-                        last_actual_price, prev_pred, next_pred
-                    )
-                    predicted_price = next_pred + adjustment
-                else:
-                    predicted_price = pred['price']
-            
-            # 100원 단위로 반올림
-            predicted_price = round(predicted_price / 100) * 100
-            
-            adjusted_predictions.append({
-                'date': target_date,
-                'price': predicted_price
-            })
+        # 다음 5개 영업일 계산
+        business_days = get_next_five_business_days(start_date)
         
-        # 예측 결과를 데이터베이스에 저장
-        for pred in adjusted_predictions:
-            save_prediction(
-                stock_code='066570',
-                stock_name='LG전자',
-                prediction_date=start_date,
-                target_date=pred['date'],
-                predicted_price=pred['price']
-            )
-        
-        # 예측 결과 출력
-        print("\n[LG전자 주가 예측 결과]")
-        print(f"예측 기준일: {start_date.strftime('%Y-%m-%d')}")
-        print(f"기준 주가: {last_actual_price:,.0f}원")
-        print(f"{'날짜':<12} {'요일':<8} {'예측 가격':>10}")
-        print("-" * 35)
-        
-        for pred in adjusted_predictions:
-            date = pred['date']
-            price = pred['price']
-            weekday = date.strftime('%a')  # 요일 약자 (Mon, Tue, etc.)
-            print(f"{date.strftime('%Y-%m-%d'):<12} {weekday:<8} {price:>10,.0f}")
+        # 결과 출력
+        print("\n=== LG전자 주가 예측 결과 ===")
+        print(f"예측 시작일: {start_date.strftime('%Y-%m-%d')}")
+        print("\n예측 결과:")
+        for date, price in zip(business_days, predictions):
+            print(f"{date.strftime('%Y-%m-%d')}: {price:,.0f}원")
         
     except Exception as e:
         logger.error(f"예측 중 오류 발생: {str(e)}")

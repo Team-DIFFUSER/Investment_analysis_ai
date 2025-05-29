@@ -379,19 +379,8 @@ class LGElectronicsModel(BaseModel):
             # 예측 수행
             predictions = self.model.predict(X)
             
-            # 예측 결과를 날짜와 함께 반환
-            result = []
-            current_date = start_date
-            
-            for i in range(5):
-                # 다음 영업일 계산
-                current_date = get_next_business_day(current_date)
-                result.append({
-                    'date': current_date,
-                    'price': float(predictions[0][i])
-                })
-            
-            return result
+            # 예측 결과 반환 (날짜 계산 없이)
+            return [float(price) for price in predictions[0]]
             
         except Exception as e:
             logger.error(f"예측 중 오류 발생: {str(e)}")
