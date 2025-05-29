@@ -57,7 +57,7 @@ def get_next_five_business_days(start_date: datetime) -> List[datetime]:
     
     return business_days
 
-def get_previous_predictions(stock_name, start_date, end_date):
+def get_previous_predictions(stock_name: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
     """이전 예측값 조회"""
     db = DatabaseManager()
     try:
@@ -99,7 +99,7 @@ def get_latest_stock_price(stock_name):
     finally:
         db.close()
 
-def calculate_prediction_adjustment(actual_price, predicted_price, next_predicted_price):
+def calculate_prediction_adjustment(actual_price: float, predicted_price: float, next_predicted_price: float) -> float:
     """예측값 조정 계산"""
     if predicted_price is None:
         return 0
@@ -116,7 +116,7 @@ def calculate_prediction_adjustment(actual_price, predicted_price, next_predicte
     
     return adjustment
 
-def save_prediction(stock_code, stock_name, prediction_date, target_date, predicted_price):
+def save_prediction(stock_code: str, stock_name: str, prediction_date: datetime, target_date: datetime, predicted_price: float):
     """예측 결과를 데이터베이스에 저장"""
     db = DatabaseManager()
     try:
@@ -142,28 +142,33 @@ def save_prediction(stock_code, stock_name, prediction_date, target_date, predic
         db.close()
 
 def main():
-    try:
-        start_date = datetime(2025, 3, 27)
-        
-        # LG전자 모델 초기화
-        lg_model = LGElectronicsModel()
-        
-        # 예측 수행
-        predictions = lg_model.predict_next_five_days(start_date)
-        
-        # 다음 5개 영업일 계산
-        business_days = get_next_five_business_days(start_date)
-        
-        # 결과 출력
-        print("\n=== LG전자 주가 예측 결과 ===")
-        print(f"예측 시작일: {start_date.strftime('%Y-%m-%d')}")
-        print("\n예측 결과:")
-        for date, price in zip(business_days, predictions):
-            print(f"{date.strftime('%Y-%m-%d')}: {price:,.0f}원")
-        
-    except Exception as e:
-        logger.error(f"예측 중 오류 발생: {str(e)}")
-        raise
+    # 시작일 설정 (2025년 3월 27일)
+    start_date = datetime(2025, 3, 27)
+    
+    # LG전자 모델 초기화
+    model = LGElectronicsModel()
+    
+    # 예측 수행
+    predictions = model.predict_next_five_days(start_date)
+    
+    # 결과 출력
+    print("\n=== LG전자 주가 예측 결과 ===")
+    print(f"예측 시작일: {start_date.strftime('%Y-%m-%d')}\n")
+    print("예측 결과:")
+    for pred in predictions:
+        print(f"{pred['date'].strftime('%Y-%m-%d')}: {pred['price']:,.0f}원")
+    
+    # 예측 결과 저장
+    for pred in predictions:
+        save_prediction(
+            stock_code='066570',  # LG전자 종목코드
+            stock_name='LG전자',
+            prediction_date=datetime.now(),
+            target_date=pred['date'],
+            predicted_price=pred['price']
+        )
+    
+    print("\n✅ 예측 결과가 데이터베이스에 저장되었습니다.")
 
 if __name__ == "__main__":
     main() 

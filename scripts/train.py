@@ -4,82 +4,126 @@ import logging
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+from pathlib import Path
+import matplotlib.pyplot as plt
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = str(Path(__file__).parent.parent)
 sys.path.append(project_root)
 
 from models.stocks.lg_electronics import LGElectronicsModel
+from database.database import DatabaseManager
+from utils.logger import setup_logger
 
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# 로거 설정
+logger = setup_logger('train')
+
+def load_training_data(db_manager, start_date, end_date):
+    """학습 데이터 로드"""
+    try:
+        # 주가 데이터 로드
+        stock_data = db_manager.get_stock_data(
+            stock_code='066570',
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        # 감성 데이터 로드
+        sentiment_data = db_manager.get_sentiment_data(
+            stock_code='066570',
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        # 경제 데이터 로드
+        economic_data = db_manager.get_economic_data(
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        return stock_data, sentiment_data, economic_data
+        
+    except Exception as e:
+        logger.error(f"학습 데이터 로드 중 오류 발생: {str(e)}")
+        raise
 
 def main():
     try:
+        # 결과 디렉토리 생성
+        results_dir = Path('results')
+        results_dir.mkdir(exist_ok=True)
+        
+        # 데이터베이스 연결
+        db_manager = DatabaseManager()
+        
+        # 학습 기간 설정
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365 * 3)  # 3년치 데이터
+        
+        # 학습 데이터 로드
+        logger.info("학습 데이터 로드 중...")
+        stock_data, sentiment_data, economic_data = load_training_data(
+            db_manager, start_date, end_date
+        )
+        
         # 모델 초기화
-        lg_model = LGElectronicsModel()
-        
-        # 데이터 로드
-        logger.info("데이터 로드 중...")
-        stock_data = lg_model.load_stock_data()
-        sentiment_data = lg_model.load_sentiment_data()
-        economic_data = lg_model.load_economic_data()
-        
-        # 데이터 검증
-        if stock_data.empty or sentiment_data.empty or economic_data.empty:
-            raise ValueError("데이터 로드 실패: 일부 데이터가 비어있습니다.")
-        
-        logger.info(f"주가 데이터: {len(stock_data)}행")
-        logger.info(f"감성 데이터: {len(sentiment_data)}행")
-        logger.info(f"경제 데이터: {len(economic_data)}행")
+        logger.info("모델 초기화 중...")
+        model = LGElectronicsModel()
         
         # 데이터 전처리
         logger.info("데이터 전처리 중...")
-        X_train, y_train, X_val, y_val, scaler = lg_model.data_processor.prepare_data(
+        X_train, y_train, X_val, y_val, X_test, y_test, scaler = model.data_processor.prepare_data(
             stock_data, sentiment_data, economic_data
         )
         
         # 모델 학습
-        logger.info("모델 학습 시작...")
-        history = lg_model.train(X_train, y_train, X_val, y_val)
-        
-        # 최근 30일 데이터로 평가
-        logger.info("최근 30일 데이터로 모델 평가 중...")
-        recent_data = stock_data.tail(30)
-        recent_sentiment = sentiment_data.tail(30)
-        recent_economic = economic_data.tail(30)
-        
-        # 평가 데이터 준비
-        X_test, y_test, _, _, _ = lg_model.data_processor.prepare_data(
-            recent_data, recent_sentiment, recent_economic
+        logger.info("모델 학습 중...")
+        history = model.train(
+            X_train, y_train,
+            X_val, y_val,
+            batch_size=32,
+            epochs=100,
+            early_stopping_patience=10,
+            learning_rate=0.001
         )
         
-        if len(X_test) == 0 or len(y_test) == 0:
-            raise ValueError("평가 데이터가 생성되지 않았습니다.")
+        # 학습 결과 저장
+        logger.info("학습 결과 저장 중...")
+        model.save_model(results_dir / 'model')
         
-        evaluation_results = lg_model.evaluate(X_test, y_test)
+        # 학습 곡선 시각화
+        logger.info("학습 곡선 시각화 중...")
+        plt.figure(figsize=(12, 4))
         
-        # 평가 결과 출력
-        logger.info("\n모델 평가 결과:")
-        logger.info(f"Test Loss: {evaluation_results['test_loss']:.4f}")
-        logger.info(f"MSE: {evaluation_results['mse']:.4f}")
-        logger.info(f"MAE: {evaluation_results['mae']:.4f}")
-        logger.info(f"Direction Accuracy: {evaluation_results['direction_accuracy']:.4f}")
+        # 손실 곡선
+        plt.subplot(1, 2, 1)
+        plt.plot(history.history['loss'], label='Training Loss')
+        plt.plot(history.history['val_loss'], label='Validation Loss')
+        plt.title('Model Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
         
-        # 학습 곡선 저장
-        history_df = pd.DataFrame(history.history)
-        os.makedirs('models/history', exist_ok=True)
-        history_df.to_csv('models/history/lg_electronics_training_history.csv')
+        # 학습률 곡선
+        plt.subplot(1, 2, 2)
+        plt.plot(history.history['lr'], label='Learning Rate')
+        plt.title('Learning Rate')
+        plt.xlabel('Epoch')
+        plt.ylabel('Learning Rate')
+        plt.legend()
+        
+        plt.tight_layout()
+        plt.savefig(results_dir / 'training_curves.png')
+        plt.close()
         
         logger.info("학습 완료!")
         
     except Exception as e:
         logger.error(f"학습 중 오류 발생: {str(e)}")
         raise
+    finally:
+        if 'db_manager' in locals():
+            db_manager.close()
 
 if __name__ == "__main__":
     main() 

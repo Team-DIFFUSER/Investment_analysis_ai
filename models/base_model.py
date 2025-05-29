@@ -405,7 +405,8 @@ def get_latest_stock_price(stock_name):
 class BaseModel:
     def __init__(self, use_cloud=False):
         self.use_cloud = use_cloud
-        self.model = None
+        self.models = []  # 앙상블 모델 리스트
+        self.num_models = 3  # 앙상블 모델 수
         self.scaler = None
         self.config = None
         
@@ -437,7 +438,7 @@ class BaseModel:
         
         # 클라우드 설정
         self.config = {
-            'batch_size': 256,
+            'batch_size': 40,
             'num_workers': 6,
             'prefetch_factor': 2,
             'use_mixed_precision': True
@@ -452,7 +453,7 @@ class BaseModel:
         raise NotImplementedError("하위 클래스에서 구현해야 합니다.")
     
     def train(self, X_train, y_train, X_val, y_val):
-        """모델 학습"""
+        """앙상블 모델 학습"""
         if self.use_cloud:
             return self._train_cloud(X_train, y_train, X_val, y_val)
         else:
@@ -460,94 +461,159 @@ class BaseModel:
     
     def _train_cloud(self, X_train, y_train, X_val, y_val):
         """클라우드 환경에서의 학습"""
-        # 데이터셋 최적화
-        train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-        train_dataset = train_dataset.cache()
-        train_dataset = train_dataset.shuffle(buffer_size=10000)
-        train_dataset = train_dataset.batch(self.config['batch_size'])
-        train_dataset = train_dataset.prefetch(self.config['prefetch_factor'])
-        
-        val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
-        val_dataset = val_dataset.cache()
-        val_dataset = val_dataset.batch(self.config['batch_size'])
-        val_dataset = val_dataset.prefetch(self.config['prefetch_factor'])
-        
-        # 콜백 설정
-        callbacks = [
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
-                patience=5,
-                min_lr=1e-6
-            ),
-            tf.keras.callbacks.ModelCheckpoint(
-                'best_model.keras',
-                monitor='val_loss',
-                save_best_only=True
-            ),
-            tf.keras.callbacks.TensorBoard(
-                log_dir='./logs',
-                histogram_freq=1
+        histories = []
+        for i in range(self.num_models):
+            logging.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
+            
+            # 모델 빌드
+            model = self.build_model()
+            
+            # 데이터셋 최적화
+            train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+            train_dataset = train_dataset.cache()
+            train_dataset = train_dataset.shuffle(buffer_size=50000)
+            train_dataset = train_dataset.batch(self.config['batch_size'])
+            train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
+            
+            val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+            val_dataset = val_dataset.cache()
+            val_dataset = val_dataset.batch(self.config['batch_size'])
+            val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+            
+            # 콜백 설정
+            callbacks = [
+                tf.keras.callbacks.EarlyStopping(
+                    monitor='val_loss',
+                    patience=120,
+                    restore_best_weights=True,
+                    min_delta=0.0001
+                ),
+                tf.keras.callbacks.ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.15,
+                    patience=25,
+                    min_lr=1e-7,
+                    min_delta=0.0001
+                ),
+                tf.keras.callbacks.ModelCheckpoint(
+                    f'best_model_{i+1}.keras',
+                    monitor='val_loss',
+                    save_best_only=True
+                ),
+                tf.keras.callbacks.TensorBoard(
+                    log_dir='./logs',
+                    histogram_freq=1
+                )
+            ]
+            
+            # 학습
+            history = model.fit(
+                train_dataset,
+                validation_data=val_dataset,
+                epochs=450,
+                callbacks=callbacks,
+                workers=self.config['num_workers'],
+                use_multiprocessing=True
             )
-        ]
+            
+            histories.append(history)
+            self.models.append(model)
         
-        # 학습
-        history = self.model.fit(
-            train_dataset,
-            validation_data=val_dataset,
-            epochs=100,
-            callbacks=callbacks,
-            workers=self.config['num_workers'],
-            use_multiprocessing=True
-        )
-        
-        return history
+        return histories
     
     def _train_local(self, X_train, y_train, X_val, y_val):
         """로컬 환경에서의 학습"""
-        callbacks = [
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
-                patience=5,
-                min_lr=1e-6
+        histories = []
+        for i in range(self.num_models):
+            logging.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
+            
+            # 모델 빌드
+            model = self.build_model()
+            
+            # 콜백 설정
+            callbacks = [
+                tf.keras.callbacks.EarlyStopping(
+                    monitor='val_loss',
+                    patience=120,
+                    restore_best_weights=True,
+                    min_delta=0.0001
+                ),
+                tf.keras.callbacks.ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.15,
+                    patience=25,
+                    min_lr=1e-7,
+                    min_delta=0.0001
+                ),
+                tf.keras.callbacks.ModelCheckpoint(
+                    f'best_model_{i+1}.keras',
+                    monitor='val_loss',
+                    save_best_only=True
+                )
+            ]
+            
+            history = model.fit(
+                X_train, y_train,
+                validation_data=(X_val, y_val),
+                epochs=450,
+                batch_size=40,
+                callbacks=callbacks
             )
-        ]
+            
+            histories.append(history)
+            self.models.append(model)
         
-        history = self.model.fit(
-            X_train, y_train,
-            validation_data=(X_val, y_val),
-            epochs=100,
-            batch_size=32,
-            callbacks=callbacks
-        )
-        
-        return history
+        return histories
     
     def predict(self, X):
-        """예측 수행"""
-        return self.model.predict(X)
+        """앙상블 예측 수행"""
+        predictions = []
+        for model in self.models:
+            pred = model.predict(X)
+            predictions.append(pred)
+        return np.mean(predictions, axis=0)
     
     def save_model(self, path):
         """모델 저장"""
-        self.model.save(path)
-        logging.info(f"모델이 {path}에 저장되었습니다.")
+        for i, model in enumerate(self.models):
+            model_path = f"{path}_{i+1}.keras"
+            model.save(model_path)
+            logging.info(f"모델 {i+1}이 {model_path}에 저장되었습니다.")
     
     def load_model(self, path):
         """모델 로드"""
-        self.model = tf.keras.models.load_model(path)
-        logging.info(f"모델을 {path}에서 로드했습니다.")
+        self.models = []
+        for i in range(self.num_models):
+            model_path = f"{path}_{i+1}.keras"
+            model = tf.keras.models.load_model(model_path)
+            self.models.append(model)
+            logging.info(f"모델 {i+1}을 {model_path}에서 로드했습니다.")
     
     def evaluate(self, X_test, y_test):
         """모델 평가"""
-        return self.model.evaluate(X_test, y_test) 
+        test_loss = []
+        predictions = []
+        
+        for model in self.models:
+            test_loss.append(model.evaluate(X_test, y_test, verbose=0))
+            pred = model.predict(X_test)
+            predictions.append(pred)
+        
+        # 평가 지표 계산
+        mse = []
+        mae = []
+        for i in range(len(self.models)):
+            mse.append(np.mean((y_test - predictions[i]) ** 2))
+            mae.append(np.mean(np.abs(y_test - predictions[i])))
+        
+        # 방향성 정확도 계산
+        direction_true = np.sign(y_test)
+        direction_pred = np.sign(predictions[0])
+        direction_accuracy = np.mean(direction_true == direction_pred)
+        
+        return {
+            'test_loss': test_loss,
+            'mse': mse,
+            'mae': mae,
+            'direction_accuracy': direction_accuracy
+        } 

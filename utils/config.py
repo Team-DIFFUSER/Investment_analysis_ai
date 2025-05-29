@@ -1,73 +1,138 @@
 import os
-from dotenv import load_dotenv
+from pathlib import Path
+import yaml
 import logging
 from typing import Dict, Any
 
-# 환경 변수 로드
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 class Config:
     def __init__(self):
-        self.config: Dict[str, Any] = {}
-        self._load_config()
-    
-    def _load_config(self) -> None:
-        """환경 변수에서 설정 로드"""
+        self.config_path = Path(__file__).parent.parent / 'config' / 'config.yaml'
+        self.config = self._load_config()
+        
+        # 기본 설정
+        self.project_root = Path(__file__).parent.parent
+        self.data_dir = self.project_root / 'data'
+        self.models_dir = self.project_root / 'models'
+        self.results_dir = self.project_root / 'results'
+        
+        # 디렉토리 생성
+        self._create_directories()
+        
+        # 로깅 설정
+        self._setup_logging()
+        
+    def _load_config(self):
+        """설정 파일 로드"""
         try:
-            # 데이터베이스 설정
-            self.config['database'] = {
-                'user': os.getenv('DB_USER'),
-                'password': os.getenv('DB_PASSWORD'),
-                'host': os.getenv('DB_HOST'),
-                'port': os.getenv('DB_PORT'),
-                'name': os.getenv('DB_NAME')
-            }
-            
-            # 모델 설정
-            self.config['model'] = {
-                'sequence_length': int(os.getenv('SEQUENCE_LENGTH', '60')),
-                'prediction_days': int(os.getenv('PREDICTION_DAYS', '5')),
-                'batch_size': int(os.getenv('BATCH_SIZE', '32')),
-                'epochs': int(os.getenv('EPOCHS', '100')),
-                'learning_rate': float(os.getenv('LEARNING_RATE', '0.001')),
-                'validation_split': float(os.getenv('VALIDATION_SPLIT', '0.2'))
-            }
-            
-            # 경로 설정
-            self.config['paths'] = {
-                'model_dir': os.getenv('MODEL_DIR', 'models/saved'),
-                'data_dir': os.getenv('DATA_DIR', 'data'),
-                'log_dir': os.getenv('LOG_DIR', 'logs'),
-                'result_dir': os.getenv('RESULT_DIR', 'results')
-            }
-            
-            # 로깅 설정
-            self.config['logging'] = {
-                'level': os.getenv('LOG_LEVEL', 'INFO'),
-                'format': os.getenv('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            }
-            
-            # 디렉토리 생성
-            self._create_directories()
-            
-            logger.info("설정 로드 완료")
-            
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f)
         except Exception as e:
-            logger.error(f"설정 로드 중 오류 발생: {str(e)}")
+            logging.error(f"설정 파일 로드 중 오류 발생: {str(e)}")
             raise
     
-    def _create_directories(self) -> None:
+    def _create_directories(self):
         """필요한 디렉토리 생성"""
-        try:
-            for path in self.config['paths'].values():
-                os.makedirs(path, exist_ok=True)
-        except Exception as e:
-            logger.error(f"디렉토리 생성 중 오류 발생: {str(e)}")
-            raise
+        directories = [
+            self.data_dir,
+            self.models_dir,
+            self.results_dir,
+            self.data_dir / 'raw',
+            self.data_dir / 'processed',
+            self.models_dir / 'stocks',
+            self.results_dir / 'predictions',
+            self.results_dir / 'evaluations'
+        ]
+        
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
     
+    def _setup_logging(self):
+        """로깅 설정"""
+        log_dir = self.project_root / 'logs'
+        log_dir.mkdir(exist_ok=True)
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_dir / 'app.log'),
+                logging.StreamHandler()
+            ]
+        )
+    
+    @property
+    def database(self):
+        """데이터베이스 설정"""
+        return self.config.get('database', {})
+    
+    @property
+    def model(self):
+        """모델 설정"""
+        return self.config.get('model', {})
+    
+    @property
+    def training(self):
+        """학습 설정"""
+        return self.config.get('training', {})
+    
+    @property
+    def prediction(self):
+        """예측 설정"""
+        return self.config.get('prediction', {})
+    
+    @property
+    def evaluation(self):
+        """평가 설정"""
+        return self.config.get('evaluation', {})
+    
+    def get_stock_config(self, stock_code):
+        """특정 종목의 설정"""
+        stocks = self.config.get('stocks', {})
+        return stocks.get(stock_code, {})
+    
+    def get_feature_config(self):
+        """특성 설정"""
+        return self.config.get('features', {})
+    
+    def get_technical_indicators(self):
+        """기술적 지표 설정"""
+        return self.config.get('technical_indicators', {})
+    
+    def get_sentiment_config(self):
+        """감성 분석 설정"""
+        return self.config.get('sentiment', {})
+    
+    def get_economic_config(self):
+        """경제 지표 설정"""
+        return self.config.get('economic', {})
+    
+    def get_path(self, path_type):
+        """경로 설정"""
+        paths = {
+            'data': self.data_dir,
+            'models': self.models_dir,
+            'results': self.results_dir,
+            'raw_data': self.data_dir / 'raw',
+            'processed_data': self.data_dir / 'processed',
+            'stock_models': self.models_dir / 'stocks',
+            'predictions': self.results_dir / 'predictions',
+            'evaluations': self.results_dir / 'evaluations',
+            'logs': self.project_root / 'logs'
+        }
+        return paths.get(path_type)
+    
+    def get_model_path(self, stock_code):
+        """모델 저장 경로"""
+        return self.models_dir / 'stocks' / f'{stock_code}_model'
+    
+    def get_prediction_path(self, stock_code, date):
+        """예측 결과 저장 경로"""
+        return self.results_dir / 'predictions' / f'{stock_code}_{date}.csv'
+    
+    def get_evaluation_path(self, stock_code):
+        """평가 결과 저장 경로"""
+        return self.results_dir / 'evaluations' / f'{stock_code}_evaluation'
+
     def get(self, key: str, default: Any = None) -> Any:
         """설정값 조회"""
         return self.config.get(key, default)
