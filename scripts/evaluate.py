@@ -11,12 +11,15 @@ project_root = str(Path(__file__).parent.parent)
 sys.path.append(project_root)
 
 from models.stocks.lg_electronics import LGElectronicsModel
-from models.evaluation import ModelEvaluator
-from utils.database import DatabaseManager
-from utils.logger import setup_logger
+from database.database import DatabaseManager
 
-# 로거 설정
-logger = setup_logger('evaluate')
+def setup_logging():
+    """로깅 설정"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    return logging.getLogger(__name__)
 
 def load_test_data(db_manager, start_date, end_date):
     """테스트 데이터 로드"""
@@ -48,6 +51,9 @@ def load_test_data(db_manager, start_date, end_date):
         raise
 
 def main():
+    logger = setup_logging()
+    logger.info("모델 평가를 시작합니다.")
+    
     try:
         # 결과 디렉토리 생성
         results_dir = Path('results')
@@ -72,39 +78,28 @@ def main():
         
         # 데이터 전처리
         logger.info("데이터 전처리 중...")
-        X_train, y_train, X_val, y_val, X_test, y_test, scaler = model.data_processor.prepare_data(
-            stock_data, sentiment_data, economic_data
-        )
+        X_train, y_train, X_val, y_val, X_test, y_test, scaler = model.prepare_training_data()
         
         # 모델 평가
         logger.info("모델 평가 중...")
-        evaluator = ModelEvaluator(model, scaler)
-        results = evaluator.evaluate_predictions(X_test, y_test)
+        metrics = model.evaluate(X_test, y_test)
         
-        # 결과 시각화
-        logger.info("결과 시각화 중...")
-        evaluator.plot_predictions(
-            results,
-            save_path=results_dir / 'predictions.png'
-        )
-        evaluator.plot_error_distribution(
-            results,
-            save_path=results_dir / 'error_distribution.png'
-        )
-        evaluator.plot_direction_accuracy(
-            results,
-            save_path=results_dir / 'direction_accuracy.png'
-        )
+        # 결과 출력
+        logger.info("\n=== 평가 결과 ===")
+        logger.info(f"MSE: {metrics['mse']:.4f}")
+        logger.info(f"MAE: {metrics['mae']:.4f}")
+        logger.info(f"방향성 정확도: {metrics['direction_accuracy']:.2%}")
         
-        # 평가 보고서 생성
-        logger.info("평가 보고서 생성 중...")
-        report = evaluator.generate_evaluation_report(
-            results,
-            save_path=results_dir / 'evaluation_report.txt'
-        )
+        # 결과 저장
+        results_file = results_dir / 'evaluation_results.txt'
+        with open(results_file, 'w') as f:
+            f.write("=== LG전자 주가 예측 모델 평가 결과 ===\n\n")
+            f.write(f"평가 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}\n\n")
+            f.write(f"MSE: {metrics['mse']:.4f}\n")
+            f.write(f"MAE: {metrics['mae']:.4f}\n")
+            f.write(f"방향성 정확도: {metrics['direction_accuracy']:.2%}\n")
         
-        logger.info("평가 완료!")
-        logger.info("\n" + report)
+        logger.info(f"평가 결과가 {results_file}에 저장되었습니다.")
         
     except Exception as e:
         logger.error(f"평가 중 오류 발생: {str(e)}")

@@ -7,20 +7,24 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-# Add project root to Python path
+# 프로젝트 루트 디렉토리를 Python 경로에 추가
 project_root = str(Path(__file__).parent.parent)
-if project_root not in sys.path:
-    sys.path.append(project_root)
+sys.path.append(project_root)
 
 from models.stocks.lg_electronics import LGElectronicsModel
 from database.database import DatabaseManager
 from utils.config import Config
 from utils.logger import setup_logger
 
-# 로거 설정
-logger = setup_logger('train')
+def setup_logging():
+    """로깅 설정"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    return logging.getLogger(__name__)
 
-def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: str) -> tuple:
+def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: str, logger: logging.Logger) -> tuple:
     """학습 데이터 로드"""
     try:
         # 주가 데이터 로드
@@ -50,6 +54,10 @@ def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: s
         raise
 
 def main():
+    """메인 실행 함수"""
+    logger = setup_logging()
+    logger.info("LG전자 주가 예측 모델 학습을 시작합니다.")
+    
     try:
         # 결과 디렉토리 생성
         results_dir = Path(__file__).parent.parent / 'results'
@@ -67,10 +75,10 @@ def main():
         
         # 데이터 로드
         logger.info("학습 데이터 로드 중...")
-        stock_data, sentiment_data, economic_data = load_training_data(db_manager, start_date, end_date)
+        stock_data, sentiment_data, economic_data = load_training_data(db_manager, start_date, end_date, logger)
         
         # 모델 초기화
-        model = LGElectronicsModel(config)
+        model = LGElectronicsModel()
         
         # 데이터 전처리
         logger.info("데이터 전처리 중...")
@@ -79,7 +87,7 @@ def main():
         )
         
         # 모델 학습
-        logger.info("모델 학습 시작...")
+        logger.info("모델 학습을 시작합니다...")
         training_results = model.train(
             X_train=X_train,
             y_train=y_train,
@@ -117,8 +125,16 @@ def main():
         logger.info(f"최적의 에포크: {training_results['best_epoch']}")
         logger.info(f"최적의 검증 손실: {training_results['best_val_loss']:.4f}")
         
+        # 학습 결과 출력
+        logger.info("모델 학습이 완료되었습니다.")
+        logger.info(f"평가 지표: {training_results['metrics']}")
+        
+        # 다음 날 예측
+        next_day_prediction = model.predict_next_day()
+        logger.info(f"다음 날 예측 주가: {next_day_prediction:,.0f}원")
+        
     except Exception as e:
-        logger.error(f"학습 중 오류 발생: {str(e)}")
+        logger.error(f"학습 중 오류가 발생했습니다: {e}")
         raise
     finally:
         if 'db_manager' in locals():
