@@ -24,21 +24,36 @@ import logging
 from typing import List, Dict, Tuple, Optional
 import time
 
+def setup_gpu():
+    """GPU 설정 및 최적화"""
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        try:
+            print(f"GPU 사용 가능: {gpus[0]}")
+            # Mixed Precision 활성화 (FP16)
+            tf.keras.mixed_precision.set_global_policy('mixed_float16')
+            print("Mixed Precision 활성화됨")
+        except RuntimeError as e:
+            print(f"GPU 설정 오류: {e}")
+    else:
+        print("GPU를 찾을 수 없습니다. CPU를 사용합니다.")
+
+def enhanced_weighted_time_mse(y_true, y_pred):
+    """시간에 따른 가중치가 적용된 MSE 손실 함수"""
+    # 시간에 따른 가중치 계산 (최근 데이터에 더 높은 가중치)
+    time_weights = tf.exp(tf.linspace(0., 1., tf.shape(y_true)[1]))
+    time_weights = time_weights / tf.reduce_sum(time_weights)
+    
+    # MSE 계산
+    squared_diff = tf.square(y_true - y_pred)
+    
+    # 가중치 적용
+    weighted_squared_diff = squared_diff * time_weights
+    
+    return tf.reduce_mean(weighted_squared_diff)
+
 # TensorFlow 세션 초기화
 import tensorflow as tf
-
-# GPU 설정 단순화
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
-    try:
-        print(f"GPU 사용 가능: {gpus[0]}")
-        # Mixed Precision 활성화 (FP16)
-        tf.keras.mixed_precision.set_global_policy('mixed_float16')
-        print("Mixed Precision 활성화됨")
-    except RuntimeError as e:
-        print(f"GPU 설정 오류: {e}")
-else:
-    print("GPU를 찾을 수 없습니다. CPU를 사용합니다.")
 
 # 기존 세션 정리 및 메모리 해제
 tf.keras.backend.clear_session()
