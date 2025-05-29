@@ -1,39 +1,12 @@
-import sys
 import os
-import tensorflow as tf
-from dotenv import load_dotenv
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
 import pandas as pd
 import numpy as np
-from typing import Tuple, Dict, List, Any
-import logging
+import tensorflow as tf
 from datetime import datetime, timedelta
+import logging
+from typing import Dict, Any, Optional, Tuple
 
-from models.base_model import BaseModel, setup_gpu, enhanced_weighted_time_mse
-from models.data_processor import DataProcessor
-from models.evaluation import ModelEvaluator
-from database.database import DatabaseManager
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from tensorflow.keras.regularizers import l1_l2
-from sklearn.preprocessing import MinMaxScaler
-import matplotlib.pyplot as plt
-import seaborn as sns
-from pathlib import Path
-
-from utils.config import Config
-from utils.logger import setup_logger
-from models.base.price_predict_model import BasePricePredictModel
-
-# 환경 변수 로드
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
@@ -41,53 +14,32 @@ class LGElectronicsModel(BasePricePredictModel):
             stock_code='066570',
             stock_name='LG전자',
             sequence_length=20,
-            batch_size=128
+            batch_size=32
         )
-        self.db = DatabaseManager()
-        self.logger = logging.getLogger(__name__)
-
+        
     def load_data(self) -> pd.DataFrame:
-        """데이터베이스에서 LG전자 데이터 로드"""
+        """LG전자 주가 데이터 로드"""
         try:
-            # 주가 데이터 로드
-            stock_data = self.db.get_stock_data(self.stock_code)
+            # 데이터베이스에서 주가 데이터 가져오기
+            query = """
+                SELECT date, open, high, low, close, volume
+                FROM stock_prices
+                WHERE stock_code = '066570'
+                ORDER BY date
+            """
+            df = pd.read_sql(query, self.conn)
             
-            # 감성 데이터 로드
-            sentiment_data = self.db.get_sentiment_data(self.stock_code)
+            if df.empty:
+                raise ValueError("데이터가 비어있습니다.")
+                
+            # 날짜를 인덱스로 설정
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
             
-            # 경제 지표 데이터 로드
-            economic_data = self.db.get_economic_data()
-            
-            # 데이터 병합
-            merged_data = pd.merge(
-                stock_data,
-                sentiment_data,
-                left_on='time',
-                right_on='pub_date',
-                how='left'
-            )
-            
-            merged_data = pd.merge(
-                merged_data,
-                economic_data,
-                left_on='time',
-                right_index=True,
-                how='left'
-            )
-            
-            # 컬럼명 변경
-            merged_data = merged_data.rename(columns={
-                'open_price': 'open',
-                'high_price': 'high',
-                'low_price': 'low',
-                'close_price': 'close',
-                'volume': 'volume'
-            })
-            
-            return merged_data
+            return df
             
         except Exception as e:
-            self.logger.error(f"데이터 로드 중 오류 발생: {e}")
+            logging.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
 
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
