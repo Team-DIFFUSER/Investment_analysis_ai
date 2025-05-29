@@ -97,6 +97,21 @@ class DataProcessor:
     def add_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """기술적 지표 추가"""
         try:
+            # 가격 변동률 계산
+            df['price_change_5d'] = df['close'].pct_change(5)
+            df['price_change_10d'] = df['close'].pct_change(10)
+            
+            # 이동평균 기반 변동성
+            df['volatility_5d'] = df['close'].rolling(window=5).std() / df['close'].rolling(window=5).mean()
+            df['volatility_10d'] = df['close'].rolling(window=10).std() / df['close'].rolling(window=10).mean()
+            
+            # 거래량 가중 가격
+            df['vwap'] = (df['close'] * df['volume']).rolling(window=5).sum() / df['volume'].rolling(window=5).sum()
+            
+            # 가격 모멘텀 (여러 기간)
+            for window in [5, 10, 20]:
+                df[f'momentum_{window}d'] = df['close'] / df['close'].rolling(window=window).mean() - 1
+            
             # 이동평균선
             for window in [5, 20, 60]:
                 df[f'MA{window}'] = df['close'].rolling(window=window).mean()
@@ -127,12 +142,36 @@ class DataProcessor:
             df['VOLUME_MA20'] = df['volume'].rolling(window=20).mean()
             df['VOLUME_RATIO'] = df['volume'] / df['VOLUME_MA20']
             
-            # 모멘텀 지표
-            df['MOM'] = df['close'].pct_change(periods=10)
-            df['ROC'] = df['close'].pct_change(periods=20)
+            # 이상치 처리 (IQR 방법)
+            for col in ['close', 'volume', 'price_change_5d', 'price_change_10d']:
+                q1 = df[col].quantile(0.25)
+                q3 = df[col].quantile(0.75)
+                iqr = q3 - q1
+                lower_bound = q1 - 2.0 * iqr
+                upper_bound = q3 + 2.0 * iqr
+                df[col] = df[col].clip(lower_bound, upper_bound)
             
             # 결측치 처리
-            df = df.fillna(method='ffill').fillna(method='bfill')
+            df = df.ffill().bfill()
+            
+            # 감성 데이터 보간
+            sentiment_cols = ['finbert_positive', 'finbert_negative', 'finbert_neutral']
+            for col in sentiment_cols:
+                if col in df.columns:
+                    mask = df[col] != 0
+                    if mask.any():
+                        df[col] = df[col].interpolate(method='linear')
+            
+            # 경제 지표 보간
+            economic_cols = ['treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y']
+            for col in economic_cols:
+                if col in df.columns:
+                    mask = df[col] != 0
+                    if mask.any():
+                        df[col] = df[col].interpolate(method='linear')
+            
+            # 남은 결측치는 0으로 채우기
+            df = df.fillna(0)
             
             return df
             
