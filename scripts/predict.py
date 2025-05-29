@@ -143,8 +143,7 @@ def save_prediction(stock_code, stock_name, prediction_date, target_date, predic
 
 def main():
     try:
-        # 시작 날짜 설정 (2025년 6월 3일)
-        start_date = datetime(2025, 6, 3)
+        start_date = datetime(2025, 3, 27)
         
         # LG전자 모델 초기화
         lg_model = LGElectronicsModel()
