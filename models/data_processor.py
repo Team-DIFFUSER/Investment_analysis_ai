@@ -5,9 +5,7 @@ from typing import Tuple, List, Dict
 import logging
 from datetime import datetime, timedelta
 import tensorflow as tf
-from ta.trend import SMAIndicator, MACD
-from ta.momentum import RSIIndicator, ROCIndicator
-from ta.volatility import BollingerBands
+import pandas_ta as ta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -116,37 +114,36 @@ class DataProcessor:
     def add_technical_indicators(self, df):
         """기술적 지표 추가"""
         # RSI
-        rsi = RSIIndicator(close=df['close_price'], window=14)
-        df['RSI'] = rsi.rsi()
+        df['RSI'] = df.ta.rsi(close='close_price', length=14)
         
         # MACD
-        macd = MACD(close=df['close_price'])
-        df['MACD'] = macd.macd()
-        df['MACD_SIGNAL'] = macd.macd_signal()
-        df['MACD_HIST'] = macd.macd_diff()
+        macd = df.ta.macd(close='close_price')
+        df['MACD'] = macd['MACD_12_26_9']
+        df['MACD_SIGNAL'] = macd['MACDs_12_26_9']
+        df['MACD_HIST'] = macd['MACDh_12_26_9']
         
         # Bollinger Bands
-        bb = BollingerBands(close=df['close_price'])
-        df['BB_UPPER'] = bb.bollinger_hband()
-        df['BB_MIDDLE'] = bb.bollinger_mavg()
-        df['BB_LOWER'] = bb.bollinger_lband()
-        df['BB_PERCENT'] = bb.bollinger_pband()
+        bb = df.ta.bbands(close='close_price')
+        df['BB_UPPER'] = bb['BBU_20_2.0']
+        df['BB_MIDDLE'] = bb['BBM_20_2.0']
+        df['BB_LOWER'] = bb['BBL_20_2.0']
+        df['BB_PERCENT'] = bb['BBP_20_2.0']
         
         # Moving Averages
-        df['MA5'] = SMAIndicator(close=df['close_price'], window=5).sma_indicator()
-        df['MA20'] = SMAIndicator(close=df['close_price'], window=20).sma_indicator()
-        df['MA60'] = SMAIndicator(close=df['close_price'], window=60).sma_indicator()
+        df['MA5'] = df.ta.sma(close='close_price', length=5)
+        df['MA20'] = df.ta.sma(close='close_price', length=20)
+        df['MA60'] = df.ta.sma(close='close_price', length=60)
         
         # Volume Moving Averages
-        df['VOLUME_MA5'] = SMAIndicator(close=df['volume'], window=5).sma_indicator()
-        df['VOLUME_MA20'] = SMAIndicator(close=df['volume'], window=20).sma_indicator()
+        df['VOLUME_MA5'] = df.ta.sma(close='volume', length=5)
+        df['VOLUME_MA20'] = df.ta.sma(close='volume', length=20)
         
         # Volume Ratio
         df['VOLUME_RATIO'] = df['volume'] / df['VOLUME_MA20']
         
         # Momentum Indicators
-        df['MOM'] = ROCIndicator(close=df['close_price'], window=10).roc()
-        df['ROC'] = ROCIndicator(close=df['close_price'], window=20).roc()
+        df['MOM'] = df.ta.roc(close='close_price', length=10)
+        df['ROC'] = df.ta.roc(close='close_price', length=20)
         
         return df
     
