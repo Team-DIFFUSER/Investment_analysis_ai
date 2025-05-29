@@ -27,6 +27,7 @@ from pathlib import Path
 
 from utils.config import Config
 from utils.logger import setup_logger
+from models.base.price_predict_model import BasePricePredictModel
 
 # 환경 변수 로드
 load_dotenv()
@@ -34,24 +35,138 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class LGElectronicsModel(BaseModel):
-    def __init__(self, config: Config):
-        super().__init__(use_cloud=False)
-        self.config = config
-        self.stock_name = "LG전자"
-        self.stock_code = "066570"
-        self.sequence_length = 20
-        self.data_processor = DataProcessor()
-        self.evaluator = ModelEvaluator()
-        self.db_manager = DatabaseManager()
-        self.n_features = None  # 데이터 로드 시 설정
-        self.models = []  # 앙상블 모델 리스트
-        self.num_models = 3  # 앙상블 모델 수
-        self.model_path = config.get_model_path('lg_electronics')
-        self.model = None
-        self.scaler = None
-        self.load_models()  # 모델 로드
-    
+class LGElectronicsModel(BasePricePredictModel):
+    def __init__(self):
+        super().__init__(
+            stock_code='066570',
+            stock_name='LG전자',
+            sequence_length=20,
+            batch_size=128
+        )
+        self.db = DatabaseManager()
+        self.logger = logging.getLogger(__name__)
+
+    def load_data(self) -> pd.DataFrame:
+        """데이터베이스에서 LG전자 데이터 로드"""
+        try:
+            # 주가 데이터 로드
+            stock_data = self.db.get_stock_data(self.stock_code)
+            
+            # 감성 데이터 로드
+            sentiment_data = self.db.get_sentiment_data(self.stock_code)
+            
+            # 경제 지표 데이터 로드
+            economic_data = self.db.get_economic_data()
+            
+            # 데이터 병합
+            merged_data = pd.merge(
+                stock_data,
+                sentiment_data,
+                left_on='time',
+                right_on='pub_date',
+                how='left'
+            )
+            
+            merged_data = pd.merge(
+                merged_data,
+                economic_data,
+                left_on='time',
+                right_index=True,
+                how='left'
+            )
+            
+            # 컬럼명 변경
+            merged_data = merged_data.rename(columns={
+                'open_price': 'open',
+                'high_price': 'high',
+                'low_price': 'low',
+                'close_price': 'close',
+                'volume': 'volume'
+            })
+            
+            return merged_data
+            
+        except Exception as e:
+            self.logger.error(f"데이터 로드 중 오류 발생: {e}")
+            raise
+
+    def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """학습 데이터 준비"""
+        # 데이터 로드
+        data = self.load_data()
+        
+        # 데이터 전처리
+        processed_data = self.enhanced_preprocessing(data)
+        
+        # 학습 데이터 준비
+        X, y = self.prepare_data(processed_data)
+        
+        # 학습/검증/테스트 데이터 분할 (80/10/10)
+        train_size = int(len(X) * 0.8)
+        val_size = int(len(X) * 0.1)
+        
+        X_train = X[:train_size]
+        y_train = y[:train_size]
+        
+        X_val = X[train_size:train_size + val_size]
+        y_val = y[train_size:train_size + val_size]
+        
+        X_test = X[train_size + val_size:]
+        y_test = y[train_size + val_size:]
+        
+        return X_train, y_train, X_val, y_val
+
+    def train_model(self) -> Dict[str, float]:
+        """모델 학습 및 평가"""
+        try:
+            # 학습 데이터 준비
+            X_train, y_train, X_val, y_val = self.prepare_training_data()
+            
+            # 모델 구축
+            self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
+            
+            # 모델 학습
+            self.train(X_train, y_train, X_val, y_val)
+            
+            # 모델 평가
+            metrics = self.evaluate(X_val, y_val)
+            
+            # 모델 저장
+            self.save_model(f'models/stocks/{self.stock_code}')
+            
+            return metrics
+            
+        except Exception as e:
+            self.logger.error(f"모델 학습 중 오류 발생: {e}")
+            raise
+
+    def predict_next_day(self) -> float:
+        """다음 날 주가 예측"""
+        try:
+            # 최근 데이터 로드
+            data = self.load_data()
+            recent_data = data.tail(self.sequence_length)
+            
+            # 데이터 전처리
+            processed_data = self.enhanced_preprocessing(recent_data)
+            
+            # 예측 데이터 준비
+            X, _ = self.prepare_data(processed_data)
+            
+            # 예측 수행
+            prediction = self.predict(X[-1:])
+            
+            # 예측값 역변환
+            prediction = self.scaler.inverse_transform(
+                np.concatenate([np.zeros((1, 3)), prediction.reshape(-1, 1), np.zeros((1, 16))], axis=1)
+            )[0, 3]
+            
+            return prediction
+            
+        except Exception as e:
+            self.logger.error(f"예측 중 오류 발생: {e}")
+            raise
+
     def load_models(self):
         """저장된 앙상블 모델 로드"""
         try:
@@ -230,101 +345,6 @@ class LGElectronicsModel(BaseModel):
             
         except Exception as e:
             logger.error(f"경제지표 데이터 로드 중 오류 발생: {str(e)}")
-            raise
-    
-    def load_data(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """모든 데이터 로드"""
-        try:
-            # 주가 데이터 로드
-            stock_query = """
-            SELECT 
-                time as date,
-                stock_code,
-                stock_name,
-                open_price as open,
-                high_price as high,
-                low_price as low,
-                close_price as close,
-                volume,
-                market_cap,
-                foreign_holding,
-                foreign_holding_ratio as foreign_ratio
-            FROM stock_prices
-            WHERE stock_name = %s
-            ORDER BY time;
-            """
-            stock_data = pd.DataFrame(self.db_manager.execute_query(stock_query, (self.stock_name,)))
-            
-            # 감성 데이터 로드
-            sentiment_query = """
-            SELECT 
-                pub_date as date,
-                finbert_positive,
-                finbert_negative,
-                finbert_neutral,
-                finbert_sentiment
-            FROM news_sentiment
-            WHERE pub_date >= %s
-            ORDER BY pub_date;
-            """
-            sentiment_data = pd.DataFrame(self.db_manager.execute_query(
-                sentiment_query, (stock_data['date'].min(),)
-            ))
-            
-            # 경제지표 데이터 로드
-            economic_query = """
-            SELECT 
-                time as date,
-                treasury_10y,
-                dollar_index,
-                usd_krw,
-                korean_bond_10y
-            FROM economic_indicators
-            WHERE time >= %s
-            ORDER BY time;
-            """
-            economic_data = pd.DataFrame(self.db_manager.execute_query(
-                economic_query, (stock_data['date'].min(),)
-            ))
-            
-            # 데이터 전처리
-            # 1. 날짜 형식 통일
-            for df in [stock_data, sentiment_data, economic_data]:
-                df['date'] = pd.to_datetime(df['date'])
-            
-            # 2. 숫자형 컬럼 변환
-            numeric_columns = {
-                'stock_data': ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio'],
-                'sentiment_data': ['finbert_positive', 'finbert_negative', 'finbert_neutral', 'finbert_sentiment'],
-                'economic_data': ['treasury_10y', 'dollar_index', 'usd_krw', 'korean_bond_10y']
-            }
-            
-            for col in numeric_columns['stock_data']:
-                stock_data[col] = pd.to_numeric(stock_data[col], errors='coerce')
-            
-            for col in numeric_columns['sentiment_data']:
-                sentiment_data[col] = pd.to_numeric(sentiment_data[col], errors='coerce')
-            
-            for col in numeric_columns['economic_data']:
-                economic_data[col] = pd.to_numeric(economic_data[col], errors='coerce')
-            
-            # 3. 결측치 처리
-            stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
-            sentiment_data = sentiment_data.fillna(method='ffill').fillna(method='bfill')
-            economic_data = economic_data.fillna(method='ffill').fillna(method='bfill')
-            
-            # 4. 데이터 검증
-            if stock_data.empty or sentiment_data.empty or economic_data.empty:
-                raise ValueError("데이터 로드 실패: 일부 데이터가 비어있습니다.")
-            
-            logger.info(f"주가 데이터: {len(stock_data)}행")
-            logger.info(f"감성 데이터: {len(sentiment_data)}행")
-            logger.info(f"경제 데이터: {len(economic_data)}행")
-            
-            return stock_data, sentiment_data, economic_data
-            
-        except Exception as e:
-            logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
     
     def build_model(self):
@@ -595,6 +615,5 @@ class LGElectronicsModel(BaseModel):
             return 0.0  # 오류 발생 시 조정하지 않음
 
 if __name__ == "__main__":
-    config = Config()
-    model = LGElectronicsModel(config)
-    model.train() 
+    model = LGElectronicsModel()
+    model.train_model() 

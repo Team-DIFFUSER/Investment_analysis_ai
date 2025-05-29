@@ -5,16 +5,22 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from typing import List, Dict
+from pathlib import Path
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = str(Path(__file__).parent.parent)
+sys.path.append(project_root)
 
 from models.stocks.lg_electronics import LGElectronicsModel
 from database.database import DatabaseManager
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('predict_script')
+def setup_logging():
+    """로깅 설정"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    return logging.getLogger(__name__)
 
 # 2025년 한국 공휴일 목록
 KOREAN_HOLIDAYS_2025 = [
@@ -142,33 +148,41 @@ def save_prediction(stock_code: str, stock_name: str, prediction_date: datetime,
         db.close()
 
 def main():
-    # 시작일 설정 (2025년 3월 27일)
-    start_date = datetime(2025, 3, 27)
+    logger = setup_logging()
+    logger.info("LG전자 주가 예측을 시작합니다.")
     
-    # LG전자 모델 초기화
-    model = LGElectronicsModel()
-    
-    # 예측 수행
-    predictions = model.predict_next_five_days(start_date)
-    
-    # 결과 출력
-    print("\n=== LG전자 주가 예측 결과 ===")
-    print(f"예측 시작일: {start_date.strftime('%Y-%m-%d')}\n")
-    print("예측 결과:")
-    for pred in predictions:
-        print(f"{pred['date'].strftime('%Y-%m-%d')}: {pred['price']:,.0f}원")
-    
-    # 예측 결과 저장
-    for pred in predictions:
-        save_prediction(
-            stock_code='066570',  # LG전자 종목코드
-            stock_name='LG전자',
-            prediction_date=datetime.now(),
-            target_date=pred['date'],
-            predicted_price=pred['price']
-        )
-    
-    print("\n✅ 예측 결과가 데이터베이스에 저장되었습니다.")
+    try:
+        # 시작일 설정 (2025년 3월 27일)
+        start_date = datetime(2025, 3, 27)
+        
+        # LG전자 모델 초기화
+        model = LGElectronicsModel()
+        
+        # 예측 수행
+        predictions = model.predict_next_five_days(start_date)
+        
+        # 결과 출력
+        logger.info("\n=== LG전자 주가 예측 결과 ===")
+        logger.info(f"예측 시작일: {start_date.strftime('%Y-%m-%d')}\n")
+        logger.info("예측 결과:")
+        for pred in predictions:
+            logger.info(f"{pred['date'].strftime('%Y-%m-%d')}: {pred['price']:,.0f}원")
+        
+        # 예측 결과 저장
+        for pred in predictions:
+            save_prediction(
+                stock_code='066570',  # LG전자 종목코드
+                stock_name='LG전자',
+                prediction_date=datetime.now(),
+                target_date=pred['date'],
+                predicted_price=pred['price']
+            )
+        
+        logger.info("\n✅ 예측 결과가 데이터베이스에 저장되었습니다.")
+        
+    except Exception as e:
+        logger.error(f"예측 중 오류 발생: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     main() 
