@@ -7,14 +7,26 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 import pandas as pd
 import numpy as np
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Any
 import logging
 from datetime import datetime, timedelta
 
 from models.base_model import BaseModel, setup_gpu, enhanced_weighted_time_mse
 from models.data_processor import DataProcessor
-from models.evaluation import ModelEvaluator, evaluate_predictions
+from models.evaluation import ModelEvaluator
 from database.database import DatabaseManager
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from tensorflow.keras.regularizers import l1_l2
+from sklearn.preprocessing import MinMaxScaler
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+
+from utils.config import Config
+from utils.logger import setup_logger
 
 # 환경 변수 로드
 load_dotenv()
@@ -23,8 +35,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class LGElectronicsModel(BaseModel):
-    def __init__(self, use_cloud=False):
-        super().__init__(use_cloud)
+    def __init__(self, config: Config):
+        super().__init__(use_cloud=False)
+        self.config = config
         self.stock_name = "LG전자"
         self.stock_code = "066570"
         self.sequence_length = 20
@@ -34,6 +47,9 @@ class LGElectronicsModel(BaseModel):
         self.n_features = None  # 데이터 로드 시 설정
         self.models = []  # 앙상블 모델 리스트
         self.num_models = 3  # 앙상블 모델 수
+        self.model_path = config.get_model_path('lg_electronics')
+        self.model = None
+        self.scaler = None
         self.load_models()  # 모델 로드
     
     def load_models(self):
@@ -579,5 +595,6 @@ class LGElectronicsModel(BaseModel):
             return 0.0  # 오류 발생 시 조정하지 않음
 
 if __name__ == "__main__":
-    model = LGElectronicsModel(use_cloud=True)
+    config = Config()
+    model = LGElectronicsModel(config)
     model.train() 
