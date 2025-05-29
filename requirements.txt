@@ -6,7 +6,7 @@ tensorflow>=2.8.0
 keras>=2.15.0
 
 # Data processing and analysis
-pandas_ta>=0.3.0  # Technical analysis library
+pandas_ta==0.3.14b0  # Technical analysis library
 yfinance>=0.2.36
 beautifulsoup4>=4.12.0
 requests>=2.31.0
