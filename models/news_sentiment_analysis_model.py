@@ -45,7 +45,8 @@ def create_news_sentiment_table():
             finbert_negative DECIMAL(5,4),
             finbert_neutral DECIMAL(5,4),
             finbert_sentiment VARCHAR(10),
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(stock_code, pub_date)  -- 유니크 제약조건 추가
         );
         """, None),
         ("CREATE INDEX IF NOT EXISTS idx_news_sentiment_date ON news_sentiment (pub_date DESC);", None),
