@@ -46,26 +46,30 @@ model = AutoModelForSequenceClassification.from_pretrained("ProsusAI/finbert")
 # MongoDB에서 뉴스 데이터 로드
 def load_news_from_mongo():
     """MongoDB에서 뉴스 데이터 로드"""
-    # 최근 7일 데이터 조회
-    seven_days_ago = datetime.now() - pd.Timedelta(days=7)
-    
-    # MongoDB 쿼리
-    cursor = holding_articles.find({
-        'pubDate': {'$gte': seven_days_ago}
-    }).sort('pubDate', -1)
-    
-    # DataFrame으로 변환
-    news_list = []
-    for doc in cursor:
-        news_list.append({
-            '_id': doc['_id'],
-            'stock_code': doc['stockCode'],
-            'title': doc['title'],
-            'description': doc.get('description', ''),
-            'pub_date': doc['pubDate']
-        })
-    
-    return pd.DataFrame(news_list)
+    try:
+        # MongoDB 쿼리 - 모든 데이터 조회
+        cursor = holding_articles.find().sort('pubDate', -1)
+        
+        # DataFrame으로 변환
+        news_list = []
+        for doc in cursor:
+            news_list.append({
+                '_id': doc['_id'],
+                'stock_code': doc['stockCode'],
+                'title': doc['title'],
+                'description': doc.get('description', ''),
+                'pub_date': doc['pubDate']
+            })
+        
+        if not news_list:
+            print("⚠️ MongoDB에서 뉴스 데이터를 찾을 수 없습니다.")
+            return pd.DataFrame()
+            
+        print(f"✅ {len(news_list)}개의 뉴스 데이터를 성공적으로 로드했습니다.")
+        return pd.DataFrame(news_list)
+    except Exception as e:
+        print(f"❌ MongoDB 데이터 로드 실패: {str(e)}")
+        return pd.DataFrame()
 
 # 감성 분석 함수
 def get_finbert_sentiment(text):

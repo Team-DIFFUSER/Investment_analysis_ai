@@ -5,6 +5,8 @@ scikit-learn==1.0.2
 tensorflow==2.11.0
 keras==2.11.0
 protobuf==3.19.0
+torch==2.1.0  # PyTorch for deep learning
+transformers==4.36.0  # Hugging Face Transformers
 
 # Data processing and analysis
 ta==0.10.2  # Technical analysis library
@@ -16,6 +18,7 @@ pykrx==1.0.40  # 한국 주식 데이터 수집 라이브러리
 # Database
 psycopg2-binary==2.9.9
 sqlalchemy==1.4.41  # SQL toolkit and ORM
+pymongo==4.6.1  # MongoDB driver
 
 # Visualization
 matplotlib==3.7.1
