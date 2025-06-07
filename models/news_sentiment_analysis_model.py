@@ -161,29 +161,33 @@ def process_news_sentiment():
         row['stock_code'],
         row['title'],
         row['pub_date'],
-        row['finbert_positive'],
-        row['finbert_negative'],
-        row['finbert_neutral'],
+        float(row['finbert_positive']),
+        float(row['finbert_negative']),
+        float(row['finbert_neutral']),
         row['finbert_sentiment']
     ) for _, row in news_df.iterrows()]
     
     # 트랜잭션으로 데이터 업데이트
-    queries = [
-        ("""
-        INSERT INTO news_sentiment (
-            stock_code, title, pub_date,
-            finbert_positive, finbert_negative, finbert_neutral, finbert_sentiment
-        ) VALUES %s
-        ON CONFLICT (stock_code, pub_date) DO UPDATE SET
-            finbert_positive = EXCLUDED.finbert_positive,
-            finbert_negative = EXCLUDED.finbert_negative,
-            finbert_neutral = EXCLUDED.finbert_neutral,
-            finbert_sentiment = EXCLUDED.finbert_sentiment
-        """, data)
-    ]
-    execute_transaction(queries)
+    query = """
+    INSERT INTO news_sentiment (
+        stock_code, title, pub_date,
+        finbert_positive, finbert_negative, finbert_neutral, finbert_sentiment
+    ) VALUES %s
+    ON CONFLICT (stock_code, pub_date) DO UPDATE SET
+        finbert_positive = EXCLUDED.finbert_positive,
+        finbert_negative = EXCLUDED.finbert_negative,
+        finbert_neutral = EXCLUDED.finbert_neutral,
+        finbert_sentiment = EXCLUDED.finbert_sentiment
+    """
     
-    print(f"✅ {len(data)}개의 뉴스 감성 분석 결과가 데이터베이스에 저장되었습니다.")
+    try:
+        execute_values_query(query, data)
+        print(f"✅ {len(data)}개의 뉴스 감성 분석 결과가 데이터베이스에 저장되었습니다.")
+    except Exception as e:
+        print(f"❌ 데이터 저장 중 오류 발생: {str(e)}")
+        print("🔍 첫 번째 데이터 샘플:")
+        if data:
+            print(data[0])
 
 if __name__ == "__main__":
     print("📢 뉴스 감성 분석을 시작합니다...")
