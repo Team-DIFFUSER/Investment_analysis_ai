@@ -11,6 +11,7 @@ ta==0.10.2  # Technical analysis library
 yfinance==0.2.36
 beautifulsoup4==4.12.0
 requests==2.31.0
+pykrx==1.0.40  # 한국 주식 데이터 수집 라이브러리
 
 # Database
 psycopg2-binary==2.9.9
