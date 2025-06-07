@@ -59,9 +59,9 @@ def create_stock_prices_table():
 def get_date_range():
     """2025년 3월 21일까지의 데이터를 가져오도록 설정"""
     # end_date = datetime(2025, 3, 25)  # 2025년 3월 21일로 고정
-    # start_date = end_date - timedelta(days=500)  # 500일 전부터
     end_date = datetime(2025, 3, 26)  # 2025년 3월 21일로 고정
-    start_date = datetime(2023, 3, 25)  # 500일 전부터
+    start_date = end_date - timedelta(days=500)
+    #start_date = datetime(2023, 3, 25)  # 500일 전부터
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
