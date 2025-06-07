@@ -8,7 +8,8 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import tensorflow as tf
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, Concatenate, BatchNormalization, Multiply, MultiHeadAttention, Layer, TimeDistributed, Lambda, Conv1D, GRU, RNN
-from tensorflow.keras.optimizers import Adam, AdamW, RMSprop, Nadam
+from tensorflow.keras.optimizers import Adam, RMSprop, Nadam
+from tensorflow.keras.optimizers.legacy import AdamW
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 import random
 import math
