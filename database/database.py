@@ -221,6 +221,10 @@ class DatabaseManager:
             logger.error(f"주가 데이터 조회 중 오류 발생: {str(e)}")
             raise
     
+    def clean_stock_code(self, stock_code):
+        """종목코드에서 'A' 접두사 제거"""
+        return stock_code.replace('A', '')
+
     def get_sentiment_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """감성 데이터 조회"""
         try:
@@ -237,7 +241,8 @@ class DatabaseManager:
             AND pub_date BETWEEN %s AND %s
             ORDER BY pub_date;
             """
-            results = self.execute_query(query, (stock_code, start_date, end_date))
+            clean_code = self.clean_stock_code(stock_code)
+            results = self.execute_query(query, (clean_code, start_date, end_date))
             
             if not results:
                 return pd.DataFrame()
