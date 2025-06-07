@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from datetime import datetime, timedelta
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 
