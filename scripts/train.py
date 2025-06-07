@@ -7,6 +7,7 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 
+
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 project_root = str(Path(__file__).parent.parent)
 sys.path.append(project_root)
@@ -24,6 +25,34 @@ def setup_logging():
     )
     return logging.getLogger(__name__)
 
+def get_sentiment_data(db_manager: DatabaseManager, stock_code: str, start_date: str, end_date: str, logger: logging.Logger) -> pd.DataFrame:
+    """TimescaleDB에서 감성 분석 결과 조회"""
+    try:
+        query = """
+        SELECT 
+            pub_date as date,
+            stock_code,
+            finbert_positive,
+            finbert_negative,
+            finbert_neutral,
+            finbert_sentiment
+        FROM news_sentiment
+        WHERE stock_code = %s
+        AND pub_date BETWEEN %s AND %s
+        ORDER BY pub_date;
+        """
+        
+        results = db_manager.execute_query(query, (stock_code, start_date, end_date))
+        
+        if not results:
+            return pd.DataFrame()
+        
+        return pd.DataFrame(results)
+            
+    except Exception as e:
+        logger.error(f"감성 데이터 조회 중 오류 발생: {str(e)}")
+        raise
+
 def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: str, logger: logging.Logger) -> tuple:
     """학습 데이터 로드"""
     try:
@@ -34,11 +63,13 @@ def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: s
             end_date=end_date
         )
         
-        # 감성 데이터 로드
-        sentiment_data = db_manager.get_sentiment_data(
+        # 감성 분석 결과 로드
+        sentiment_data = get_sentiment_data(
+            db_manager=db_manager,
             stock_code='066570',
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            logger=logger
         )
         
         # 경제 데이터 로드
