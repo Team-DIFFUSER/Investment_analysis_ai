@@ -46,7 +46,7 @@ def create_news_sentiment_table():
             finbert_neutral DECIMAL(5,4),
             finbert_sentiment VARCHAR(10),
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(stock_code, pub_date)  -- 유니크 제약조건 추가
+            UNIQUE(stock_code, pub_date, title)  -- 제목도 포함하여 유니크 제약조건 설정
         );
         """, None),
         ("CREATE INDEX IF NOT EXISTS idx_news_sentiment_date ON news_sentiment (pub_date DESC);", None),
@@ -174,7 +174,7 @@ def process_news_sentiment():
         stock_code, title, pub_date,
         finbert_positive, finbert_negative, finbert_neutral, finbert_sentiment
     ) VALUES %s
-    ON CONFLICT (stock_code, pub_date) DO UPDATE SET
+    ON CONFLICT (stock_code, pub_date, title) DO UPDATE SET
         finbert_positive = EXCLUDED.finbert_positive,
         finbert_negative = EXCLUDED.finbert_negative,
         finbert_neutral = EXCLUDED.finbert_neutral,
