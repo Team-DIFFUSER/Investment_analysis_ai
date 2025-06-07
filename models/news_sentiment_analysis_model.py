@@ -13,6 +13,7 @@ load_dotenv()
 
 # MongoDB 연결
 MONGO_URI = os.getenv('MONGO_URI')
+print(f"🔌 MongoDB URI: {MONGO_URI}")
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client['stock_news']
 holding_articles = db['holding_articles']
@@ -47,28 +48,44 @@ model = AutoModelForSequenceClassification.from_pretrained("ProsusAI/finbert")
 def load_news_from_mongo():
     """MongoDB에서 뉴스 데이터 로드"""
     try:
+        # MongoDB 연결 상태 확인
+        print(f"📊 MongoDB 서버 정보: {mongo_client.server_info()}")
+        print(f"📚 전체 문서 수: {holding_articles.count_documents({})}")
+        
         # MongoDB 쿼리 - 모든 데이터 조회
         cursor = holding_articles.find().sort('pubDate', -1)
         
         # DataFrame으로 변환
         news_list = []
         for doc in cursor:
-            news_list.append({
-                '_id': doc['_id'],
-                'stock_code': doc['stockCode'],
-                'title': doc['title'],
-                'description': doc.get('description', ''),
-                'pub_date': doc['pubDate']
-            })
+            try:
+                news_list.append({
+                    '_id': doc['_id'],
+                    'stock_code': doc['stockCode'],
+                    'title': doc['title'],
+                    'description': doc.get('description', ''),
+                    'pub_date': doc['pubDate']
+                })
+            except KeyError as e:
+                print(f"⚠️ 문서 처리 중 오류 발생: {str(e)}")
+                print(f"문제가 된 문서: {doc}")
+                continue
         
         if not news_list:
             print("⚠️ MongoDB에서 뉴스 데이터를 찾을 수 없습니다.")
+            print("🔍 MongoDB 컬렉션 구조 확인:")
+            sample_doc = holding_articles.find_one()
+            if sample_doc:
+                print("샘플 문서 구조:")
+                for key, value in sample_doc.items():
+                    print(f"- {key}: {type(value)}")
             return pd.DataFrame()
             
         print(f"✅ {len(news_list)}개의 뉴스 데이터를 성공적으로 로드했습니다.")
         return pd.DataFrame(news_list)
     except Exception as e:
         print(f"❌ MongoDB 데이터 로드 실패: {str(e)}")
+        print(f"🔍 MongoDB 연결 정보: {MONGO_URI}")
         return pd.DataFrame()
 
 # 감성 분석 함수
