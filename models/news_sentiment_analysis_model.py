@@ -15,6 +15,20 @@ load_dotenv()
 MONGO_URI = os.getenv('MONGO_URI')
 print(f"🔌 MongoDB URI: {MONGO_URI}")
 mongo_client = MongoClient(MONGO_URI)
+
+# 사용 가능한 데이터베이스와 컬렉션 확인
+print("\n📚 사용 가능한 데이터베이스:")
+for db_name in mongo_client.list_database_names():
+    print(f"- {db_name}")
+    db = mongo_client[db_name]
+    collections = db.list_collection_names()
+    if collections:
+        print(f"  컬렉션:")
+        for coll in collections:
+            count = db[coll].count_documents({})
+            print(f"  - {coll} (문서 수: {count})")
+
+# 기존 데이터베이스 연결
 db = mongo_client['stock_news']
 holding_articles = db['holding_articles']
 
