@@ -28,8 +28,8 @@ for db_name in mongo_client.list_database_names():
             count = db[coll].count_documents({})
             print(f"  - {coll} (문서 수: {count})")
 
-# 기존 데이터베이스 연결
-db = mongo_client['stock_news']
+# 데이터베이스 연결
+db = mongo_client['user_accounts']  # stock_news에서 user_accounts로 변경
 holding_articles = db['holding_articles']
 
 def create_news_sentiment_table():
