@@ -232,11 +232,9 @@ class DatabaseManager:
             SELECT 
                 pub_date as date,
                 title,
-                finbert_positive,
-                finbert_negative,
-                finbert_neutral,
-                finbert_sentiment
-            FROM news_sentiment
+                description,
+                stock_code
+            FROM holding_articles
             WHERE stock_code = %s
             AND pub_date BETWEEN %s AND %s
             ORDER BY pub_date;
@@ -248,12 +246,6 @@ class DatabaseManager:
                 return pd.DataFrame()
             
             df = pd.DataFrame(results)
-            
-            # 감성 점수 변환
-            sentiment_columns = ['finbert_positive', 'finbert_negative', 'finbert_neutral']
-            for col in sentiment_columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
             return df
             
         except Exception as e:
