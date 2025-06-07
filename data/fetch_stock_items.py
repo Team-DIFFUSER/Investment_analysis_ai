@@ -110,19 +110,24 @@ def fetch_stock_items():
             
             # 트랜잭션으로 데이터 업데이트
             queries = [
-                ("DELETE FROM stock_items;", None),
-                ("""
-                INSERT INTO stock_items (
-                    stock_code, stock_name, isin_code, company_name,
-                    is_kospi200, is_related, last_updated
-                ) VALUES %s
-                """, [(
-                    row['stock_code'], row['stock_name'], row['isin_code'],
-                    row['company_name'], row['is_kospi200'], row['is_related'],
-                    datetime.now()
-                ) for _, row in final_df.iterrows()])
+                ("DELETE FROM stock_items;", None)
             ]
             execute_transaction(queries)
+            
+            # 데이터 삽입
+            insert_query = """
+            INSERT INTO stock_items (
+                stock_code, stock_name, isin_code, company_name,
+                is_kospi200, is_related, last_updated
+            ) VALUES %s
+            """
+            data = [(
+                row['stock_code'], row['stock_name'], row['isin_code'],
+                row['company_name'], row['is_kospi200'], row['is_related'],
+                datetime.now()
+            ) for _, row in final_df.iterrows()]
+            
+            execute_values_query(insert_query, data)
             
             print(f"\n✅ KOSPI 200 및 관련 기업 정보가 데이터베이스에 저장되었습니다.")
             print(f"- KOSPI 200 종목 수: {len(kospi200)}개")

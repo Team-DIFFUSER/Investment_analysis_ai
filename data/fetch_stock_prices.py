@@ -61,7 +61,7 @@ def get_date_range():
     # end_date = datetime(2025, 3, 25)  # 2025년 3월 21일로 고정
     # start_date = end_date - timedelta(days=500)  # 500일 전부터
     end_date = datetime(2025, 3, 26)  # 2025년 3월 21일로 고정
-    start_date = datetime(2025, 3, 25)  # 500일 전부터
+    start_date = datetime(2023, 3, 25)  # 500일 전부터
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
