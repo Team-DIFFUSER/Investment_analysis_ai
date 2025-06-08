@@ -191,9 +191,27 @@ class LGElectronicsModel(BasePricePredictModel):
                 metrics = {}
             
             # 모델 저장
-            save_dir = os.path.join('models', 'checkpoints')
-            os.makedirs(save_dir, exist_ok=True)
-            self.save_model(os.path.join(save_dir, f'{self.stock_name}_model.h5'))
+            try:
+                save_dir = os.path.join('models', 'checkpoints')
+                if os.path.exists(save_dir) and not os.path.isdir(save_dir):
+                    os.remove(save_dir)
+                os.makedirs(save_dir, exist_ok=True)
+                
+                model_path = os.path.join(save_dir, f'{self.stock_name}_model.h5')
+                if os.path.exists(model_path) and os.path.isdir(model_path):
+                    import shutil
+                    shutil.rmtree(model_path)
+                
+                self.model.save(model_path)
+                self.logger.info(f"모델이 저장되었습니다: {model_path}")
+            except Exception as e:
+                self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
+                # 백업 저장 시도
+                backup_dir = os.path.join('models', 'backup')
+                os.makedirs(backup_dir, exist_ok=True)
+                backup_path = os.path.join(backup_dir, f'{self.stock_name}_model.h5')
+                self.model.save(backup_path)
+                self.logger.info(f"모델이 백업 위치에 저장되었습니다: {backup_path}")
             
             return history.history
             
