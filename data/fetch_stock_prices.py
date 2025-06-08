@@ -1,6 +1,9 @@
 import os
 import sys
 from pathlib import Path
+import time
+from requests.exceptions import RequestException
+import json
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 project_root = str(Path(__file__).parent.parent)
@@ -78,6 +81,35 @@ def clean_stock_code(stock_code):
     # 6자리로 맞추기
     return code.zfill(6)
 
+def retry_on_error(func, max_retries=3, delay=1):
+    """API 호출 실패 시 재시도하는 데코레이터"""
+    def wrapper(*args, **kwargs):
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except (RequestException, json.JSONDecodeError) as e:
+                if attempt == max_retries - 1:  # 마지막 시도였다면
+                    raise
+                print(f"  - 시도 {attempt + 1}/{max_retries} 실패, {delay}초 후 재시도...")
+                time.sleep(delay)
+        return None
+    return wrapper
+
+@retry_on_error
+def get_stock_data_with_retry(start_date, end_date, code):
+    """재시도 로직이 포함된 주가 데이터 조회"""
+    return stock.get_market_ohlcv_by_date(start_date, end_date, code)
+
+@retry_on_error
+def get_market_cap_with_retry(start_date, end_date, code):
+    """재시도 로직이 포함된 시가총액 데이터 조회"""
+    return stock.get_market_cap_by_date(start_date, end_date, code)
+
+@retry_on_error
+def get_foreign_holding_with_retry(code, start_date, end_date):
+    """재시도 로직이 포함된 외국인 보유량 데이터 조회"""
+    return stock.get_exhaustion_rates_of_foreign_investment_by_ticker(code, start_date, end_date)
+
 def fetch_stock_data(stock_code, start_date, end_date):
     """PyKrx를 사용하여 주식 데이터 가져오기"""
     try:
@@ -88,16 +120,14 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 주가 데이터 가져오기
         try:
             print(f"  - 주가 데이터 가져오기 시도 중...")
-            df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
-            if df.empty:
+            df = get_stock_data_with_retry(start_date, end_date, clean_code)
+            if df is None or df.empty:
                 print(f"  - 데이터가 비어있음")
                 return None, 0
             print(f"  - 주가 데이터 가져오기 성공!")
         except Exception as e:
             print(f"  - 주가 데이터 가져오기 실패: {str(e)}")
             print(f"  - 상세 정보: {type(e).__name__}")
-            if hasattr(e, 'response'):
-                print(f"  - API 응답: {e.response.text if hasattr(e.response, 'text') else 'No response text'}")
             return None, 0
             
         # 컬럼명 변경
@@ -127,8 +157,8 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 시가총액 데이터 가져오기
         try:
             print(f"  - 시가총액 데이터 가져오기 시도 중...")
-            market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
-            if not market_cap.empty:
+            market_cap = get_market_cap_with_retry(start_date, end_date, clean_code)
+            if market_cap is not None and not market_cap.empty:
                 df = df.merge(market_cap[['시가총액']], left_on='time', right_index=True, how='left')
                 df = df.rename(columns={'시가총액': 'market_cap'})
                 print(f"  - 시가총액 데이터 가져오기 성공!")
@@ -142,8 +172,8 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 외국인/기관 보유량 데이터 가져오기
         try:
             print(f"  - 외국인 보유량 데이터 가져오기 시도 중...")
-            foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
-            if not foreign_holding.empty:
+            foreign_holding = get_foreign_holding_with_retry(clean_code, start_date, end_date)
+            if foreign_holding is not None and not foreign_holding.empty:
                 df = df.merge(foreign_holding[['외국인보유량', '외국인보유비율']], left_on='time', right_index=True, how='left')
                 df = df.rename(columns={
                     '외국인보유량': 'foreign_holding',
@@ -164,8 +194,6 @@ def fetch_stock_data(stock_code, start_date, end_date):
     except Exception as e:
         print(f"데이터 수집 중 오류 발생: {e}")
         print(f"상세 정보: {type(e).__name__}")
-        if hasattr(e, 'response'):
-            print(f"API 응답: {e.response.text if hasattr(e.response, 'text') else 'No response text'}")
         return None, 0
 
 def modify_table_structure():
