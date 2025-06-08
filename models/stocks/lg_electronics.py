@@ -208,13 +208,14 @@ class LGElectronicsModel(BasePricePredictModel):
             callbacks = [
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
-                    patience=10,
-                    restore_best_weights=True
+                    patience=20,  # patience 증가
+                    restore_best_weights=True,
+                    min_delta=0.0001  # 최소 개선 기준 추가
                 ),
                 tf.keras.callbacks.ReduceLROnPlateau(
                     monitor='val_loss',
                     factor=0.5,
-                    patience=5,
+                    patience=10,  # patience 증가
                     min_lr=1e-6
                 )
             ]
@@ -223,7 +224,7 @@ class LGElectronicsModel(BasePricePredictModel):
             history = self.model.fit(
                 X_train, y_train,
                 validation_data=(X_val, y_val),
-                epochs=100,
+                epochs=200,  # 최대 에포크 수 증가
                 batch_size=self.batch_size,
                 callbacks=callbacks,
                 verbose=1
