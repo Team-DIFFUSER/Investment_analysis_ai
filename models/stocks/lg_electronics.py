@@ -462,7 +462,7 @@ class LGElectronicsModel(BaseStockModel):
             features = ['open_price', 'high_price', 'low_price', 'close_price', 'volume', 
                        'MA5', 'MA20', 'MA60', 'Volatility',
                        'Volume_MA5', 'Volume_MA20', 'Price_Change',
-                       'Price_Change_MA5', 'RSI', 'MACD', 'Signal_Line']
+                       'Price_Change_MA5', 'RSI', 'MACD']
             
             # 전체 데이터로 스케일러 학습
             self.scaler.fit(processed_data[features])
