@@ -183,15 +183,15 @@ class LGElectronicsModel(BaseStockModel):
             callbacks = [
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
-                    patience=30,
+                    patience=50,  # patience 증가
                     restore_best_weights=True,
                     min_delta=0.0001
                 ),
                 tf.keras.callbacks.ReduceLROnPlateau(
                     monitor='val_loss',
                     factor=0.2,
-                    patience=10,
-                    min_lr=0.00001,
+                    patience=20,  # patience 증가
+                    min_lr=0.000001,  # 최소 학습률 감소
                     verbose=1
                 ),
                 tf.keras.callbacks.ModelCheckpoint(
@@ -211,8 +211,8 @@ class LGElectronicsModel(BaseStockModel):
             history = self.model.fit(
                 X_train, y_train,
                 validation_data=(X_val, y_val),
-                epochs=500,
-                batch_size=64,
+                epochs=1000,  # 에포크 수 증가
+                batch_size=32,  # 배치 사이즈 감소
                 callbacks=callbacks,
                 verbose=1
             )
@@ -415,13 +415,15 @@ class LGElectronicsModel(BaseStockModel):
             # 첫 번째 LSTM 레이어
             x = layers.LSTM(256, input_shape=input_shape, return_sequences=True,
                           kernel_initializer='glorot_uniform',
-                          recurrent_initializer='orthogonal')(inputs)
+                          recurrent_initializer='orthogonal',
+                          recurrent_dropout=0.1)(inputs)  # recurrent_dropout 추가
             x = layers.BatchNormalization()(x)
-            x = layers.Dropout(0.3)(x)
+            x = layers.Dropout(0.4)(x)  # dropout 비율 증가
             
             # Attention 메커니즘
             attention = layers.MultiHeadAttention(
-                num_heads=4, key_dim=64
+                num_heads=8,  # attention head 수 증가
+                key_dim=32
             )(x, x)
             x = layers.Add()([x, attention])
             x = layers.LayerNormalization()(x)
@@ -429,27 +431,31 @@ class LGElectronicsModel(BaseStockModel):
             # 두 번째 LSTM 레이어
             x = layers.LSTM(128, return_sequences=True,
                           kernel_initializer='glorot_uniform',
-                          recurrent_initializer='orthogonal')(x)
+                          recurrent_initializer='orthogonal',
+                          recurrent_dropout=0.1)(x)
             x = layers.BatchNormalization()(x)
-            x = layers.Dropout(0.3)(x)
+            x = layers.Dropout(0.4)(x)
             
             # 세 번째 LSTM 레이어
             x = layers.LSTM(64, return_sequences=False,
                           kernel_initializer='glorot_uniform',
-                          recurrent_initializer='orthogonal')(x)
+                          recurrent_initializer='orthogonal',
+                          recurrent_dropout=0.1)(x)
             x = layers.BatchNormalization()(x)
-            x = layers.Dropout(0.3)(x)
+            x = layers.Dropout(0.4)(x)
             
             # Dense 레이어
             x = layers.Dense(128, activation='relu',
-                           kernel_initializer='he_normal')(x)
+                           kernel_initializer='he_normal',
+                           kernel_regularizer=tf.keras.regularizers.l2(0.01))(x)  # L2 정규화 추가
             x = layers.BatchNormalization()(x)
-            x = layers.Dropout(0.3)(x)
+            x = layers.Dropout(0.4)(x)
             
             x = layers.Dense(64, activation='relu',
-                           kernel_initializer='he_normal')(x)
+                           kernel_initializer='he_normal',
+                           kernel_regularizer=tf.keras.regularizers.l2(0.01))(x)
             x = layers.BatchNormalization()(x)
-            x = layers.Dropout(0.3)(x)
+            x = layers.Dropout(0.4)(x)
             
             # 출력 레이어
             outputs = layers.Dense(1)(x)
@@ -459,17 +465,17 @@ class LGElectronicsModel(BaseStockModel):
             
             # 옵티마이저 설정
             optimizer = tf.keras.optimizers.Adam(
-                learning_rate=0.0001,  # 학습률 감소
+                learning_rate=0.0001,
                 beta_1=0.9,
                 beta_2=0.999,
                 epsilon=1e-07,
-                clipnorm=1.0  # 그래디언트 클리핑 추가
+                clipnorm=1.0
             )
             
             # 모델 컴파일
             model.compile(
                 optimizer=optimizer,
-                loss='huber',  # Huber loss for robustness
+                loss='huber',
                 metrics=['mae', 'mse']
             )
             
