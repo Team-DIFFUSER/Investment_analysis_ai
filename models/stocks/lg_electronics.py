@@ -260,8 +260,9 @@ class LGElectronicsModel(BasePricePredictModel):
                 # 데이터셋 최적화 - 메모리 효율적인 방식으로 변경
                 train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
                 train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=min(10000, len(X_train)))
+                train_dataset = train_dataset.shuffle(buffer_size=100000)  # 버퍼 크기 증가
                 train_dataset = train_dataset.batch(self.batch_size)
+                train_dataset = train_dataset.repeat()
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
                 # 검증 데이터셋이 있는 경우에만 설정
