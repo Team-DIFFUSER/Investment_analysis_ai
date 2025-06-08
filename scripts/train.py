@@ -60,16 +60,33 @@ class StockTrainer:
             model_dir = os.path.join('models', 'checkpoints')
             model_path = os.path.join(model_dir, f'{stock_name}_model.h5')
             
-            # 디렉토리가 파일인 경우 삭제
-            if os.path.exists(model_dir) and not os.path.isdir(model_dir):
-                os.remove(model_dir)
-            
-            # 디렉토리 생성
-            os.makedirs(model_dir, exist_ok=True)
-            
-            # 모델 저장
-            model.model.save(model_path)
-            logger.info(f"{stock_name} 모델이 저장되었습니다: {model_path}")
+            try:
+                # 디렉토리가 파일인 경우 삭제
+                if os.path.exists(model_dir):
+                    if not os.path.isdir(model_dir):
+                        os.remove(model_dir)
+                    else:
+                        # 디렉토리가 이미 존재하는 경우, 기존 파일 삭제
+                        for file in os.listdir(model_dir):
+                            file_path = os.path.join(model_dir, file)
+                            if os.path.isfile(file_path):
+                                os.remove(file_path)
+                
+                # 디렉토리 생성
+                os.makedirs(model_dir, exist_ok=True)
+                
+                # 모델 저장
+                model.model.save(model_path)
+                logger.info(f"{stock_name} 모델이 저장되었습니다: {model_path}")
+                
+            except Exception as e:
+                logger.error(f"모델 저장 중 오류 발생: {str(e)}")
+                # 임시 디렉토리에 저장 시도
+                temp_dir = os.path.join('models', 'temp')
+                os.makedirs(temp_dir, exist_ok=True)
+                temp_path = os.path.join(temp_dir, f'{stock_name}_model.h5')
+                model.model.save(temp_path)
+                logger.info(f"{stock_name} 모델이 임시 위치에 저장되었습니다: {temp_path}")
             
             return {
                 'stock_name': stock_name,
