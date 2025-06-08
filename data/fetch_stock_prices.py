@@ -81,12 +81,15 @@ def get_date_range():
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
-    """종목코드 정리"""
+    """종목코드 정리
+    예: 'A000070' -> '000070'
+    """
     # 괄호와 알파벳 제거
     code = stock_code.split('(')[0].strip()
-    # 앞의 0 제거
-    code = code.lstrip('0')
-    return code
+    # 'A' 접두사 제거
+    code = code.replace('A', '')
+    # 6자리로 맞추기
+    return code.zfill(6)
 
 def retry_on_error(func, max_retries=3, delay=1):
     """API 호출 실패 시 재시도하는 데코레이터"""
