@@ -72,14 +72,18 @@ def get_date_range():
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
-    """종목코드에서 'A' 접두사 제거"""
-    return stock_code.replace('A', '')
+    """종목코드 정리"""
+    # 'A' 접두사 제거
+    code = stock_code.replace('A', '')
+    # 6자리로 맞추기
+    return code.zfill(6)
 
 def fetch_stock_data(stock_code, start_date, end_date):
     """PyKrx를 사용하여 주식 데이터 가져오기"""
     try:
         # 종목코드 정리
         clean_code = clean_stock_code(stock_code)
+        print(f"  - 정리된 종목코드: {clean_code}")
         
         # 주가 데이터 가져오기
         try:
@@ -91,6 +95,9 @@ def fetch_stock_data(stock_code, start_date, end_date):
             print(f"  - 주가 데이터 가져오기 성공!")
         except Exception as e:
             print(f"  - 주가 데이터 가져오기 실패: {str(e)}")
+            print(f"  - 상세 정보: {type(e).__name__}")
+            if hasattr(e, 'response'):
+                print(f"  - API 응답: {e.response.text if hasattr(e.response, 'text') else 'No response text'}")
             return None, 0
             
         # 컬럼명 변경
@@ -108,6 +115,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
         df['stock_code'] = stock_code
         try:
             df['stock_name'] = stock.get_market_ticker_name(clean_code)
+            print(f"  - 종목명 가져오기 성공: {df['stock_name'].iloc[0]}")
         except Exception as e:
             print(f"  - 종목명 가져오기 실패: {str(e)}")
             df['stock_name'] = stock_code
@@ -118,11 +126,14 @@ def fetch_stock_data(stock_code, start_date, end_date):
         
         # 시가총액 데이터 가져오기
         try:
+            print(f"  - 시가총액 데이터 가져오기 시도 중...")
             market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
             if not market_cap.empty:
                 df = df.merge(market_cap[['시가총액']], left_on='time', right_index=True, how='left')
                 df = df.rename(columns={'시가총액': 'market_cap'})
+                print(f"  - 시가총액 데이터 가져오기 성공!")
             else:
+                print(f"  - 시가총액 데이터가 비어있음")
                 df['market_cap'] = None
         except Exception as e:
             print(f"  - 시가총액 데이터 가져오기 실패: {str(e)}")
@@ -130,6 +141,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
         
         # 외국인/기관 보유량 데이터 가져오기
         try:
+            print(f"  - 외국인 보유량 데이터 가져오기 시도 중...")
             foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
             if not foreign_holding.empty:
                 df = df.merge(foreign_holding[['외국인보유량', '외국인보유비율']], left_on='time', right_index=True, how='left')
@@ -137,7 +149,9 @@ def fetch_stock_data(stock_code, start_date, end_date):
                     '외국인보유량': 'foreign_holding',
                     '외국인보유비율': 'foreign_holding_ratio'
                 })
+                print(f"  - 외국인 보유량 데이터 가져오기 성공!")
             else:
+                print(f"  - 외국인 보유량 데이터가 비어있음")
                 df['foreign_holding'] = None
                 df['foreign_holding_ratio'] = None
         except Exception as e:
@@ -149,6 +163,9 @@ def fetch_stock_data(stock_code, start_date, end_date):
         
     except Exception as e:
         print(f"데이터 수집 중 오류 발생: {e}")
+        print(f"상세 정보: {type(e).__name__}")
+        if hasattr(e, 'response'):
+            print(f"API 응답: {e.response.text if hasattr(e.response, 'text') else 'No response text'}")
         return None, 0
 
 def modify_table_structure():
