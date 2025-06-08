@@ -267,35 +267,32 @@ class DatabaseManager:
             self._connect()
         return self.Session()
 
-    def get_stock_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+    def get_stock_data(self, stock_code: str) -> pd.DataFrame:
         """주식 데이터 조회"""
         try:
             query = """
-                SELECT time, stock_code, stock_name, open_price, high_price, low_price, 
-                       close_price, volume, market_cap, foreign_holding, foreign_holding_ratio
+                SELECT time, open_price, high_price, low_price, close_price, volume
                 FROM stock_prices
                 WHERE stock_code = %s
-                AND time BETWEEN %s AND %s
                 ORDER BY time
             """
-            params = (stock_code, start_date, end_date)
-            result = self.execute_query(query, params)
+            result = self.execute_query(query, (stock_code,))
             
             if not result:
-                logger.warning(f"데이터가 없습니다: {stock_code} ({start_date} ~ {end_date})")
+                logger.warning(f"데이터가 없습니다: {stock_code}")
                 return pd.DataFrame()
             
-            df = pd.DataFrame(result, columns=[
-                'time', 'stock_code', 'stock_name', 'open_price', 'high_price', 'low_price',
-                'close_price', 'volume', 'market_cap', 'foreign_holding', 'foreign_holding_ratio'
-            ])
+            # DataFrame 생성 및 컬럼명 매핑
+            df = pd.DataFrame(result, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+            df['Date'] = pd.to_datetime(df['Date'])
+            df.set_index('Date', inplace=True)
             
-            df['time'] = pd.to_datetime(df['time'])
+            logger.info(f"데이터 로드 완료: {len(df)} 행")
             return df
             
         except Exception as e:
             logger.error(f"주식 데이터 조회 중 오류 발생: {str(e)}")
-            raise
+            return pd.DataFrame()
     
     def clean_stock_code(self, stock_code):
         """종목코드에서 'A' 접두사 제거"""

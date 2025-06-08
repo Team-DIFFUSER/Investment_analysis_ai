@@ -98,42 +98,18 @@ class LGElectronicsModel(BaseStockModel):
         """LG전자 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            query = """
-                SELECT time, stock_code, stock_name, open_price, high_price, low_price, 
-                       close_price, volume, market_cap, foreign_holding, foreign_holding_ratio
-                FROM stock_prices
-                WHERE stock_code = 'A066570'
-                ORDER BY time
-            """
-            result = self.db_manager.execute_query(query)
+            data = self.db_manager.get_stock_data('A066570')  # LG전자 종목코드
             
-            if not result:
-                raise ValueError("데이터가 비어있습니다.")
+            if data.empty:
+                self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")
+                return pd.DataFrame()
             
-            # DataFrame 생성 및 컬럼명 설정
-            df = pd.DataFrame(result, columns=[
-                'time', 'stock_code', 'stock_name', 'open_price', 'high_price', 'low_price',
-                'close_price', 'volume', 'market_cap', 'foreign_holding', 'foreign_holding_ratio'
-            ])
-            
-            # 날짜를 인덱스로 설정
-            df['time'] = pd.to_datetime(df['time'])
-            df.set_index('time', inplace=True)
-            
-            # 컬럼명 변경
-            df = df.rename(columns={
-                'open_price': 'open',
-                'high_price': 'high',
-                'low_price': 'low',
-                'close_price': 'close'
-            })
-            
-            self.logger.info(f"데이터 로드 완료: {len(df)} 행")
-            return df
+            self.logger.info(f"데이터 로드 완료: {len(data)} 행")
+            return data
             
         except Exception as e:
             self.logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
-            raise
+            return pd.DataFrame()
 
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Any]:
         """학습 데이터 준비"""
