@@ -11,7 +11,8 @@ from database.database import execute_query, execute_values_query, execute_trans
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 project_root = str(Path(__file__).parent.parent)
-sys.path.append(project_root)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from pykrx import stock
 
