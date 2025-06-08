@@ -118,11 +118,18 @@ class DatabaseManager:
             
             if fetch:
                 result = self.cur.fetchall()
-                return result if result else []
+                if not result:
+                    logger.warning("쿼리 결과가 없습니다.")
+                    return []
+                return result
             
             self.conn.commit()
             return []
             
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            logger.error(f"데이터베이스 오류 발생: {str(e)}")
+            raise
         except Exception as e:
             self.conn.rollback()
             logger.error(f"쿼리 실행 중 오류 발생: {str(e)}")
@@ -261,42 +268,33 @@ class DatabaseManager:
         return self.Session()
 
     def get_stock_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """주가 데이터 조회"""
+        """주식 데이터 조회"""
         try:
             query = """
-            SELECT 
-                time as date,
-                stock_code,
-                stock_name,
-                open_price as open,
-                high_price as high,
-                low_price as low,
-                close_price as close,
-                volume,
-                market_cap,
-                foreign_holding,
-                foreign_holding_ratio as foreign_ratio
-            FROM stock_prices
-            WHERE stock_code = %s
-            AND time BETWEEN %s AND %s
-            ORDER BY time;
+                SELECT time, stock_code, stock_name, open_price, high_price, low_price, 
+                       close_price, volume, market_cap, foreign_holding, foreign_holding_ratio
+                FROM stock_prices
+                WHERE stock_code = %s
+                AND time BETWEEN %s AND %s
+                ORDER BY time
             """
-            results = self.execute_query(query, (stock_code, start_date, end_date))
+            params = (stock_code, start_date, end_date)
+            result = self.execute_query(query, params)
             
-            if not results:
+            if not result:
+                logger.warning(f"데이터가 없습니다: {stock_code} ({start_date} ~ {end_date})")
                 return pd.DataFrame()
             
-            df = pd.DataFrame(results)
+            df = pd.DataFrame(result, columns=[
+                'time', 'stock_code', 'stock_name', 'open_price', 'high_price', 'low_price',
+                'close_price', 'volume', 'market_cap', 'foreign_holding', 'foreign_holding_ratio'
+            ])
             
-            # 숫자형 컬럼 변환
-            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio']
-            for col in numeric_columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
+            df['time'] = pd.to_datetime(df['time'])
             return df
             
         except Exception as e:
-            logger.error(f"주가 데이터 조회 중 오류 발생: {str(e)}")
+            logger.error(f"주식 데이터 조회 중 오류 발생: {str(e)}")
             raise
     
     def clean_stock_code(self, stock_code):
