@@ -9,6 +9,9 @@ from typing import Dict, Any, Optional, Tuple, List
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
 
+# 로거 설정
+logger = logging.getLogger(__name__)
+
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
         super().__init__(
@@ -18,6 +21,9 @@ class LGElectronicsModel(BasePricePredictModel):
             batch_size=32
         )
         self.db_manager = DatabaseManager()
+        self.n_features = None  # 특성 수 초기화
+        self.models = []  # 앙상블 모델 리스트
+        self.num_models = 3  # 앙상블 모델 수
         
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
@@ -152,12 +158,12 @@ class LGElectronicsModel(BasePricePredictModel):
             # 특성 수 설정
             if self.n_features is None:
                 self.n_features = X_train.shape[2]
-                logger.info(f"특성 수 설정: {self.n_features}")
+                self.logger.info(f"특성 수 설정: {self.n_features}")
             
             # 각 모델 학습
             histories = []
             for i in range(self.num_models):
-                logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
+                self.logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
                 
                 # 모델 빌드
                 model = self.build_model()
@@ -205,13 +211,13 @@ class LGElectronicsModel(BasePricePredictModel):
                     verbose=1
                 )
                 
-                histories.append(history)
+                histories.append(history.history)
                 self.models.append(model)
-            
+                
             return histories
             
         except Exception as e:
-            logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+            self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
             raise
     
     def load_stock_data(self) -> pd.DataFrame:
