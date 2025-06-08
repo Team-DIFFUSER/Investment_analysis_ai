@@ -572,14 +572,17 @@ class LGElectronicsModel(BasePricePredictModel):
                 y_pred = y_pred.reshape(-1)
                 y_test = y_test.reshape(-1)
             
-            # 역변환
-            y_pred = self.scaler.inverse_transform(
-                np.concatenate([np.zeros((len(y_pred), 3)), y_pred.reshape(-1, 1), np.zeros((len(y_pred), 16))], axis=1)
-            )[:, 3]
+            # 역변환을 위한 더미 데이터 생성
+            dummy_data_pred = np.zeros((len(y_pred), 20))
+            dummy_data_test = np.zeros((len(y_test), 20))
             
-            y_test = self.scaler.inverse_transform(
-                np.concatenate([np.zeros((len(y_test), 3)), y_test.reshape(-1, 1), np.zeros((len(y_test), 16))], axis=1)
-            )[:, 3]
+            # 예측값과 실제값을 4번째 컬럼에 삽입
+            dummy_data_pred[:, 3] = y_pred
+            dummy_data_test[:, 3] = y_test
+            
+            # 역변환
+            y_pred = self.scaler.inverse_transform(dummy_data_pred)[:, 3]
+            y_test = self.scaler.inverse_transform(dummy_data_test)[:, 3]
             
             # 평가 지표 계산
             mse = mean_squared_error(y_test, y_pred)
