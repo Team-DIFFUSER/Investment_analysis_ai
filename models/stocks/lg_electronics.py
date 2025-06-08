@@ -195,13 +195,7 @@ class LGElectronicsModel(BasePricePredictModel):
             os.makedirs(save_dir, exist_ok=True)
             self.save_model(os.path.join(save_dir, f'{self.stock_name}_model.h5'))
             
-            # 학습 히스토리와 평가 지표를 결합하여 반환
-            return {
-                'loss': history.history['loss'],
-                'val_loss': history.history['val_loss'],
-                'mae': history.history['mae'],
-                'val_mae': history.history['val_mae']
-            }
+            return history.history
             
         except Exception as e:
             self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
@@ -644,27 +638,6 @@ class LGElectronicsModel(BasePricePredictModel):
         except Exception as e:
             logger.error(f"예측값 조정 계산 중 오류 발생: {str(e)}")
             return 0.0  # 오류 발생 시 조정하지 않음
-
-    def save_training_results(self, history: Dict[str, List[float]]) -> None:
-        """학습 결과 저장"""
-        try:
-            if not history:
-                self.logger.warning("저장할 학습 결과가 없습니다.")
-                return
-
-            # 학습 결과 저장
-            self.db_manager.save_training_history(
-                stock_name=self.stock_name,
-                training_date=datetime.now(),
-                loss=float(history['loss'][-1]) if history.get('loss') else None,
-                val_loss=float(history['val_loss'][-1]) if history.get('val_loss') else None,
-                mae=float(history['mae'][-1]) if history.get('mae') else None,
-                val_mae=float(history['val_mae'][-1]) if history.get('val_mae') else None
-            )
-            
-        except Exception as e:
-            self.logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
-            raise
 
     def save_prediction(self, prediction: float, target_date: datetime) -> None:
         """예측 결과 저장"""
