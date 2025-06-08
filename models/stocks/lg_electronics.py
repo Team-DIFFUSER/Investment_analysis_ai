@@ -301,13 +301,14 @@ class LGElectronicsModel(BasePricePredictModel):
             self.logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
 
-    def load_models(self):
+    def load_models(self) -> bool:
         """저장된 모델 로드"""
         try:
             # 프로젝트 루트 디렉토리 찾기
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(os.path.dirname(current_dir))
             
-            # 기본 경로와 백업 경로 모두 확인 (절대 경로 사용)
+            # 모델 파일 경로
             model_paths = [
                 os.path.join(project_root, 'models', 'checkpoints', f'{self.stock_name}_model.h5'),
                 os.path.join(project_root, 'models', 'backup', f'{self.stock_name}_model.h5')
@@ -315,39 +316,24 @@ class LGElectronicsModel(BasePricePredictModel):
             
             self.logger.info(f"현재 작업 디렉토리: {os.getcwd()}")
             self.logger.info(f"프로젝트 루트 디렉토리: {project_root}")
-            self.logger.info(f"모델 파일 검색 경로: {model_paths}")
             
             for model_path in model_paths:
-                self.logger.info(f"모델 파일 확인 중: {model_path}")
+                self.logger.info(f"모델 파일 검색 중: {model_path}")
                 if os.path.exists(model_path):
-                    self.logger.info(f"파일 존재함: {model_path}")
-                    if os.path.isfile(model_path):
-                        self.logger.info(f"파일 크기: {os.path.getsize(model_path)} bytes")
-                        try:
-                            self.model = tf.keras.models.load_model(
-                                model_path,
-                                custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse},
-                                compile=False
-                            )
-                            # 모델 재컴파일
-                            optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)
-                            self.model.compile(
-                                optimizer=optimizer,
-                                loss=enhanced_weighted_time_mse,
-                                metrics=['mae'],
-                                run_eagerly=True
-                            )
-                            self.logger.info(f"모델이 성공적으로 로드되었습니다: {model_path}")
-                            return True
-                        except Exception as e:
-                            self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
-                            continue
-                    else:
-                        self.logger.warning(f"경로가 파일이 아닙니다: {model_path}")
-                else:
-                    self.logger.warning(f"파일이 존재하지 않습니다: {model_path}")
+                    self.logger.info(f"모델 파일 발견: {model_path}")
+                    try:
+                        # 모델 로드 시도
+                        self.model = tf.keras.models.load_model(
+                            model_path,
+                            custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse}
+                        )
+                        self.logger.info(f"모델 로드 성공: {model_path}")
+                        return True
+                    except Exception as e:
+                        self.logger.error(f"모델 로드 실패: {str(e)}")
+                        continue
             
-            self.logger.info("저장된 모델을 찾을 수 없습니다. 모델 학습을 시작합니다...")
+            self.logger.info("저장된 모델을 찾을 수 없습니다.")
             return False
             
         except Exception as e:
@@ -550,16 +536,21 @@ class LGElectronicsModel(BasePricePredictModel):
             
             # 모델이 없으면 학습 수행
             if not hasattr(self, 'model') or self.model is None:
-                logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
+                self.logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
                 self.train_model()
-                logger.info("모델 학습이 완료되었습니다.")
+                self.logger.info("모델 학습이 완료되었습니다.")
             
             # 다음 5개 영업일 계산
             business_days = get_next_five_business_days(start_date)
             
             # 최근 주가 데이터 로드
             data = self.load_data()
+            if data.empty:
+                raise ValueError("데이터를 로드할 수 없습니다.")
+            
             recent_data = data.tail(self.sequence_length)
+            if len(recent_data) < self.sequence_length:
+                raise ValueError(f"충분한 데이터가 없습니다. 필요: {self.sequence_length}, 실제: {len(recent_data)}")
             
             # 데이터 전처리
             processed_data = self.enhanced_preprocessing(recent_data)
@@ -586,7 +577,7 @@ class LGElectronicsModel(BasePricePredictModel):
                     pred = self.model.predict(current_data, batch_size=1, verbose=0)
                     
                     if pred is None or len(pred) == 0:
-                        logger.error("예측 결과가 비어있습니다.")
+                        self.logger.error("예측 결과가 비어있습니다.")
                         raise ValueError("Empty prediction result")
                     
                     predicted_price = pred[0][0]
@@ -619,13 +610,13 @@ class LGElectronicsModel(BasePricePredictModel):
                     current_data[0, -1] = predicted_price
                     
                 except Exception as e:
-                    logger.error(f"개별 예측 중 오류 발생: {str(e)}")
+                    self.logger.error(f"개별 예측 중 오류 발생: {str(e)}")
                     raise
             
             return predictions
             
         except Exception as e:
-            logger.error(f"예측 중 오류 발생: {str(e)}")
+            self.logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
     
     def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, float]:
