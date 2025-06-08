@@ -12,15 +12,39 @@ from database.database import DatabaseManager
 # 로거 설정
 logger = logging.getLogger(__name__)
 
-# GPU 메모리 설정
+# GPU 메모리 설정 - 최적화된 설정
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
+            # GPU 메모리 제한 설정 (전체 메모리의 90% 사용)
+            tf.config.experimental.set_virtual_device_configuration(
+                gpu,
+                [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=20730)]  # 23034MB의 90%
+            )
         logger.info("GPU 메모리 설정 완료")
     except RuntimeError as e:
         logger.error(f"GPU 메모리 설정 실패: {e}")
+
+# TensorFlow 성능 최적화
+tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일러 활성화
+tf.config.optimizer.set_experimental_options({
+    "layout_optimizer": True,
+    "constant_folding": True,
+    "shape_optimization": True,
+    "remapping": True,
+    "arithmetic_optimization": True,
+    "dependency_optimization": True,
+    "loop_optimization": True,
+    "function_optimization": True,
+    "debug_stripper": True,
+    "disable_model_pruning": False,
+    "scoped_allocator_optimization": True,
+    "pin_to_host_optimization": True,
+    "implementation_selector": True,
+    "auto_mixed_precision": True  # 자동 혼합 정밀도 활성화
+})
 
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
@@ -28,7 +52,7 @@ class LGElectronicsModel(BasePricePredictModel):
             stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
-            batch_size=32
+            batch_size=128  # 배치 크기 증가
         )
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
@@ -165,32 +189,28 @@ class LGElectronicsModel(BasePricePredictModel):
     def train(self, X_train, y_train, X_val, y_val):
         """앙상블 모델 학습"""
         try:
-            # 특성 수 설정
             if self.n_features is None:
                 self.n_features = X_train.shape[2]
                 self.logger.info(f"특성 수 설정: {self.n_features}")
             
-            # 각 모델 학습
             histories = []
             for i in range(self.num_models):
                 self.logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
                 
-                # 모델 빌드
                 model = self.build_model()
                 
-                # 콜백 설정
                 callbacks = [
                     tf.keras.callbacks.EarlyStopping(
                         monitor='val_loss',
-                        patience=120,
+                        patience=50,  # 조기 종료 기준 완화
                         restore_best_weights=True,
                         min_delta=0.0001
                     ),
                     tf.keras.callbacks.ReduceLROnPlateau(
                         monitor='val_loss',
-                        factor=0.15,
-                        patience=25,
-                        min_lr=1e-7,
+                        factor=0.2,
+                        patience=15,
+                        min_lr=1e-6,
                         min_delta=0.0001
                     ),
                     tf.keras.callbacks.ModelCheckpoint(
@@ -203,20 +223,20 @@ class LGElectronicsModel(BasePricePredictModel):
                 # 데이터셋 최적화
                 train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
                 train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=50000)
-                train_dataset = train_dataset.batch(40)
+                train_dataset = train_dataset.shuffle(buffer_size=100000)  # 버퍼 크기 증가
+                train_dataset = train_dataset.batch(self.batch_size)
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
                 val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
                 val_dataset = val_dataset.cache()
-                val_dataset = val_dataset.batch(40)
+                val_dataset = val_dataset.batch(self.batch_size)
                 val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
                 
                 # 모델 학습
                 history = model.fit(
                     train_dataset,
                     validation_data=val_dataset,
-                    epochs=450,
+                    epochs=300,  # 에포크 수 감소
                     callbacks=callbacks,
                     verbose=1
                 )
