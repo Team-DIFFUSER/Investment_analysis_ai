@@ -30,9 +30,9 @@ def setup_gpu():
     if gpus:
         try:
             print(f"GPU 사용 가능: {gpus[0]}")
-            # Mixed Precision 활성화 (FP16)
-            tf.keras.mixed_precision.set_global_policy('mixed_float16')
-            print("Mixed Precision 활성화됨")
+            # Mixed Precision 비활성화
+            tf.keras.mixed_precision.set_global_policy('float32')
+            print("Mixed Precision 비활성화됨")
         except RuntimeError as e:
             print(f"GPU 설정 오류: {e}")
     else:
@@ -197,24 +197,41 @@ class BasePricePredictModel:
     def build_model(self, input_shape: Tuple[int, int]) -> Model:
         """모델 구축"""
         # 입력 레이어
-        inputs = Input(shape=input_shape)
+        inputs = Input(shape=input_shape, dtype=tf.float32)
         
         # LSTM 레이어
-        x = LSTM(128, return_sequences=True)(inputs)
-        x = BatchNormalization()(x)
+        x = LSTM(128, return_sequences=True, dtype=tf.float32)(inputs)
+        x = BatchNormalization(dtype=tf.float32)(x)
         x = Dropout(0.2)(x)
         
-        x = LSTM(64, return_sequences=False)(x)
-        x = BatchNormalization()(x)
+        # Conv1D 레이어
+        x = Conv1D(128, kernel_size=2, padding='same', activation='relu', dtype=tf.float32)(x)
+        x = BatchNormalization(dtype=tf.float32)(x)
+        x = Dropout(0.2)(x)
+        
+        # LSTM 레이어
+        x = LSTM(64, return_sequences=False, dtype=tf.float32)(x)
+        x = BatchNormalization(dtype=tf.float32)(x)
+        x = Dropout(0.2)(x)
+        
+        # Dense 레이어
+        x = Dense(32, activation='relu', dtype=tf.float32)(x)
+        x = BatchNormalization(dtype=tf.float32)(x)
         x = Dropout(0.2)(x)
         
         # 출력 레이어
-        outputs = Dense(1)(x)
+        outputs = Dense(1, dtype=tf.float32)(x)
         
+        # 모델 생성
         model = Model(inputs=inputs, outputs=outputs)
+        
+        # 옵티마이저 설정
+        optimizer = Adam(learning_rate=0.001)
+        
+        # 모델 컴파일
         model.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss='mse',
+            optimizer=optimizer,
+            loss=enhanced_weighted_time_mse,
             metrics=['mae']
         )
         
