@@ -121,7 +121,7 @@ def get_foreign_holding_with_retry(code, start_date, end_date):
     return stock.get_exhaustion_rates_of_foreign_investment_by_ticker(code, start_date, end_date)
 
 def fetch_stock_data(stock_code, start_date, end_date):
-    """FinanceDataReader를 사용하여 주식 데이터 가져오기"""
+    """PyKrx를 사용하여 주식 데이터 가져오기"""
     try:
         # 종목코드 정리
         clean_code = clean_stock_code(stock_code)
@@ -134,25 +134,44 @@ def fetch_stock_data(stock_code, start_date, end_date):
             
             # 종목코드가 유효한지 먼저 확인
             try:
-                stock_info = fdr.StockListing('KRX')
-                stock_info = stock_info[stock_info['Code'] == clean_code]
-                if stock_info.empty:
+                stock_name = stock.get_market_ticker_name(clean_code)
+                if not stock_name:
                     print(f"  - 유효하지 않은 종목코드")
                     return None, 0
-                stock_name = stock_info['Name'].iloc[0]
                 print(f"  - 종목명: {stock_name}")
             except Exception as e:
                 print(f"  - 종목코드 확인 실패: {str(e)}")
                 return None, 0
                 
-            # 주가 데이터 가져오기
-            df = fdr.DataReader(clean_code, start_date, end_date)
-            if df.empty:
+            # 2년 단위로 데이터 가져오기
+            start_dt = datetime.strptime(start_date, "%Y%m%d")
+            end_dt = datetime.strptime(end_date, "%Y%m%d")
+            all_data = []
+            
+            current_start = start_dt
+            while current_start < end_dt:
+                current_end = min(current_start + timedelta(days=730), end_dt)
+                current_start_str = current_start.strftime("%Y%m%d")
+                current_end_str = current_end.strftime("%Y%m%d")
+                
+                print(f"  - 기간 데이터 가져오기: {current_start_str} ~ {current_end_str}")
+                df = stock.get_market_ohlcv_by_date(current_start_str, current_end_str, clean_code, adjusted=False)
+                
+                if not df.empty:
+                    all_data.append(df)
+                
+                current_start = current_end + timedelta(days=1)
+                time.sleep(1)  # API 호출 간격 조절
+            
+            if not all_data:
                 print(f"  - 데이터가 비어있음")
                 return None, 0
                 
+            # 모든 데이터 합치기
+            df = pd.concat(all_data)
+            
             # 컬럼 확인
-            required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            required_columns = ['시가', '고가', '저가', '종가', '거래량', '거래대금']
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 print(f"  - 누락된 컬럼: {missing_columns}")
@@ -163,15 +182,18 @@ def fetch_stock_data(stock_code, start_date, end_date):
         except Exception as e:
             print(f"  - 주가 데이터 가져오기 실패: {str(e)}")
             print(f"  - 상세 정보: {type(e).__name__}")
+            if hasattr(e, 'response'):
+                print(f"  - API 응답: {e.response.text if hasattr(e.response, 'text') else 'No response text'}")
             return None, 0
             
         # 컬럼명 변경
         column_names = {
-            'Open': 'open_price',
-            'High': 'high_price',
-            'Low': 'low_price',
-            'Close': 'close_price',
-            'Volume': 'volume'
+            '시가': 'open_price',
+            '고가': 'high_price',
+            '저가': 'low_price',
+            '종가': 'close_price',
+            '거래량': 'volume',
+            '거래대금': 'trading_value'
         }
         df = df.rename(columns=column_names)
         
@@ -181,7 +203,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
         
         # 날짜를 인덱스에서 컬럼으로 변경
         df = df.reset_index()
-        df = df.rename(columns={'Date': 'time'})
+        df = df.rename(columns={'날짜': 'time'})
         
         return df, len(df)
         
