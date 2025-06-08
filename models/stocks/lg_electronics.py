@@ -86,6 +86,15 @@ class LGElectronicsModel(BasePricePredictModel):
         self.device = tf.config.list_physical_devices('GPU')[0] if tf.config.list_physical_devices('GPU') else 'CPU'
         self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
 
+    def __del__(self):
+        """소멸자: 데이터베이스 연결 종료"""
+        try:
+            if hasattr(self, 'db_manager'):
+                self.db_manager.close()
+                self.logger.info("데이터베이스 연결이 종료되었습니다.")
+        except Exception as e:
+            self.logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
+
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
         try:
@@ -126,8 +135,6 @@ class LGElectronicsModel(BasePricePredictModel):
         except Exception as e:
             self.logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
-        finally:
-            self.db_manager.close()
 
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Any]:
         """학습 데이터 준비"""
@@ -294,25 +301,26 @@ class LGElectronicsModel(BasePricePredictModel):
             raise
 
     def load_models(self):
-        """저장된 앙상블 모델 로드"""
+        """저장된 모델 로드"""
         try:
-            for i in range(self.num_models):
-                model_path = os.path.join('models', 'checkpoints', f'{self.stock_name}_model_{i+1}.h5')
-                if os.path.exists(model_path):
-                    model = tf.keras.models.load_model(model_path, 
-                        custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse})
-                    self.models.append(model)
-                    self.logger.info(f"모델 {i+1} 로드 완료")
-                else:
-                    self.logger.error(f"모델 파일을 찾을 수 없습니다: {model_path}")
-                    raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {model_path}")
+            # 기본 경로와 백업 경로 모두 확인
+            model_paths = [
+                os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5'),
+                os.path.join('models', 'backup', f'{self.stock_name}_model.h5')
+            ]
             
-            if not self.models:
-                raise ValueError("모든 모델 로드 실패")
-                
+            for model_path in model_paths:
+                if os.path.exists(model_path) and os.path.isfile(model_path):
+                    self.model = tf.keras.models.load_model(model_path)
+                    self.logger.info(f"모델이 로드되었습니다: {model_path}")
+                    return True
+            
+            self.logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
+            return False
+            
         except Exception as e:
             self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
-            raise
+            return False
     
     def load_stock_data(self) -> pd.DataFrame:
         """주가 데이터 로드"""
