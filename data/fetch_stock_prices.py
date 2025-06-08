@@ -39,7 +39,17 @@ def create_stock_prices_table():
             foreign_holding_ratio DECIMAL(5,2)
         );
         """, None),
-        ("SELECT create_hypertable('stock_prices', 'time');", None),
+        ("""
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM timescaledb_information.hypertables 
+                WHERE hypertable_name = 'stock_prices'
+            ) THEN
+                PERFORM create_hypertable('stock_prices', 'time');
+            END IF;
+        END $$;
+        """, None),
         ("CREATE INDEX IF NOT EXISTS idx_stock_prices_code ON stock_prices (stock_code, time DESC);", None)
     ]
     execute_transaction(queries)
