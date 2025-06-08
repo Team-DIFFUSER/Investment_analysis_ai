@@ -16,12 +16,11 @@ from utils.date_utils import get_next_five_business_days
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# GPU 설정 단순화
+# GPU 설정 및 혼합정밀도
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
         logger.info(f"GPU 사용 가능: {gpus[0]}")
-        # Mixed Precision 활성화 (FP16)
         tf.keras.mixed_precision.set_global_policy('mixed_float16')
         logger.info("Mixed Precision 활성화됨")
     except RuntimeError as e:
@@ -29,15 +28,17 @@ if gpus:
 else:
     logger.warning("GPU를 찾을 수 없습니다. CPU를 사용합니다.")
 
-# 기존 세션 정리 및 메모리 해제
+# 세션 정리
 tf.keras.backend.clear_session()
-tf.compat.v1.reset_default_graph()
+try:
+    tf.compat.v1.reset_default_graph()
+except Exception:
+    pass
 
-# 기본 환경 변수 설정
+# 환경 변수 및 최적화
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
-# TensorFlow 최적화 설정
 tf.config.optimizer.set_jit(True)
 tf.config.optimizer.set_experimental_options({
     "layout_optimizer": True,
@@ -58,13 +59,11 @@ tf.config.optimizer.set_experimental_options({
 
 logger.info(f"TensorFlow 버전: {tf.__version__}")
 
-# 재현성 설정 강화
+# 시드 고정
 SEED = 42
 os.environ['PYTHONHASHSEED'] = str(SEED)
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
 os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
-
-# 모든 랜덤 시드 설정
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
@@ -263,7 +262,6 @@ class LGElectronicsModel(BasePricePredictModel):
                 train_dataset = train_dataset.cache()
                 train_dataset = train_dataset.shuffle(buffer_size=min(10000, len(X_train)))
                 train_dataset = train_dataset.batch(self.batch_size)
-                train_dataset = train_dataset.repeat()
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
                 # 검증 데이터셋이 있는 경우에만 설정
@@ -455,18 +453,18 @@ class LGElectronicsModel(BasePricePredictModel):
             x = tf.keras.layers.Dropout(0.3)(x)
             
             # 출력 레이어 (5% 제한을 위한 tanh 활성화 함수 사용)
-            outputs = tf.keras.layers.Dense(1, activation='tanh')(x) * 0.05  # tanh의 출력 범위를 -0.05에서 0.05로 조정
+            outputs = tf.keras.layers.Dense(1, activation='tanh')(x) * 0.05
             
             # 모델 생성
             model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
             
             # 컴파일
-            optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)  # 더 안정적인 학습을 위해 학습률 감소
+            optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)
             model.compile(
                 optimizer=optimizer,
                 loss=enhanced_weighted_time_mse,
                 metrics=['mae'],
-                jit_compile=True
+                jit_compile=True  # XLA JIT 컴파일 활성화
             )
             
             logger.info(f"모델 구조 생성 완료 - 입력: {input_shape}, 출력: 1")
