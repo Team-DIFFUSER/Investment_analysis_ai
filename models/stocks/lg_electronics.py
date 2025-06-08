@@ -11,6 +11,10 @@ from models.base.price_predict_model import BasePricePredictModel, setup_gpu, en
 from database.database import DatabaseManager
 from utils.date_utils import get_next_five_business_days
 
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # GPU 메모리 설정
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
@@ -45,10 +49,6 @@ tf.config.optimizer.set_experimental_options({
     "implementation_selector": True,
     "auto_mixed_precision": True
 })
-
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
@@ -213,13 +213,13 @@ class LGElectronicsModel(BasePricePredictModel):
                 
                 callbacks = [
                     tf.keras.callbacks.EarlyStopping(
-                        monitor='val_loss',
-                        patience=50,  # 조기 종료 기준 완화
+                        monitor='loss',  # val_loss 대신 loss 사용
+                        patience=50,
                         restore_best_weights=True,
                         min_delta=0.0001
                     ),
                     tf.keras.callbacks.ReduceLROnPlateau(
-                        monitor='val_loss',
+                        monitor='loss',  # val_loss 대신 loss 사용
                         factor=0.2,
                         patience=15,
                         min_lr=1e-6,
@@ -227,7 +227,7 @@ class LGElectronicsModel(BasePricePredictModel):
                     ),
                     tf.keras.callbacks.ModelCheckpoint(
                         checkpoint_path,
-                        monitor='val_loss',
+                        monitor='loss',  # val_loss 대신 loss 사용
                         save_best_only=True
                     )
                 ]
@@ -235,23 +235,30 @@ class LGElectronicsModel(BasePricePredictModel):
                 # 데이터셋 최적화 - 메모리 효율적인 방식으로 변경
                 train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
                 train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=100000)  # 버퍼 크기 증가
+                train_dataset = train_dataset.shuffle(buffer_size=min(100000, len(X_train)))
                 train_dataset = train_dataset.batch(self.batch_size)
+                train_dataset = train_dataset.repeat()  # 데이터셋 반복
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
-                val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
-                val_dataset = val_dataset.cache()
-                val_dataset = val_dataset.batch(self.batch_size)
-                val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+                # 검증 데이터셋이 있는 경우에만 설정
+                if len(X_val) > 0:
+                    val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+                    val_dataset = val_dataset.cache()
+                    val_dataset = val_dataset.batch(self.batch_size)
+                    val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+                    validation_data = val_dataset
+                    validation_steps = max(1, len(X_val) // self.batch_size)
+                else:
+                    validation_data = None
+                    validation_steps = None
                 
-                # 메모리 관리를 위한 steps_per_epoch 설정
-                steps_per_epoch = len(X_train) // self.batch_size
-                validation_steps = len(X_val) // self.batch_size
+                # steps_per_epoch 계산 수정
+                steps_per_epoch = max(1, len(X_train) // self.batch_size)
                 
                 # 모델 학습
                 history = model.fit(
                     train_dataset,
-                    validation_data=val_dataset,
+                    validation_data=validation_data,
                     epochs=300,
                     steps_per_epoch=steps_per_epoch,
                     validation_steps=validation_steps,
