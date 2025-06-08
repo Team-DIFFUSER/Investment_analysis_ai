@@ -1,156 +1,210 @@
 import os
 import sys
 import logging
-from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-from pathlib import Path
-import matplotlib.pyplot as plt
-
-# CUDA 환경 변수 설정
-os.environ['CUDA_HOME'] = '/usr/local/cuda-12.1'
-os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda-12.1/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
-os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.1'
+from datetime import datetime
+from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
-project_root = str(Path(__file__).parent.parent)
-sys.path.append(project_root)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.stocks.lg_electronics import LGElectronicsModel
 from database.database import DatabaseManager
-from utils.config import Config
-from utils.logger import setup_logger
 
-def setup_logging():
-    """로깅 설정"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    return logging.getLogger(__name__)
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-def get_sentiment_data(db_manager: DatabaseManager, stock_code: str, start_date: str, end_date: str, logger: logging.Logger) -> pd.DataFrame:
-    """TimescaleDB에서 감성 분석 결과 조회"""
-    try:
-        query = """
-        SELECT 
-            pub_date as date,
-            stock_code,
-            finbert_positive,
-            finbert_negative,
-            finbert_neutral,
-            finbert_sentiment
-        FROM news_sentiment
-        WHERE stock_code = %s
-        AND pub_date BETWEEN %s AND %s
-        ORDER BY pub_date;
-        """
+class StockTrainer:
+    def __init__(self):
+        """주식 학습기 초기화"""
+        self.db_manager = DatabaseManager()
+        self.models = {}
+        self.max_workers = 4  # 동시에 처리할 최대 종목 수
         
-        results = db_manager.execute_query(query, (stock_code, start_date, end_date))
-        
-        if not results:
-            return pd.DataFrame()
-        
-        return pd.DataFrame(results)
+    def initialize_models(self) -> None:
+        """모든 모델 초기화"""
+        try:
+            # 여기에 새로운 종목 모델들을 추가
+            self.models = {
+                'LG전자': LGElectronicsModel(),
+                # '삼성전자': SamsungElectronicsModel(),
+                # 'SK하이닉스': SKHynixModel(),
+                # ... 다른 종목들 추가
+            }
+            logger.info(f"초기화된 모델 수: {len(self.models)}")
+        except Exception as e:
+            logger.error(f"모델 초기화 중 오류 발생: {str(e)}")
+            raise
+
+    def train_single_stock(self, stock_name: str, model: Any) -> Dict[str, Any]:
+        """단일 종목 학습 수행"""
+        try:
+            logger.info(f"{stock_name} 학습 시작")
             
-    except Exception as e:
-        logger.error(f"감성 데이터 조회 중 오류 발생: {str(e)}")
-        raise
+            # 학습 데이터 로드
+            training_data = self.load_training_data(stock_name)
+            if training_data is None or training_data.empty:
+                raise ValueError(f"{stock_name}의 학습 데이터가 없습니다.")
+            
+            # 모델 학습
+            history = model.train_model()
+            
+            # 학습 결과 저장
+            self.save_training_results(stock_name, history)
+            
+            return {
+                'stock_name': stock_name,
+                'status': 'success',
+                'history': history
+            }
+        except Exception as e:
+            logger.error(f"{stock_name} 학습 중 오류 발생: {str(e)}")
+            return {
+                'stock_name': stock_name,
+                'status': 'error',
+                'error': str(e)
+            }
 
-def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: str, logger: logging.Logger) -> tuple:
-    """학습 데이터 로드"""
-    try:
-        # 주가 데이터 로드
-        stock_data = db_manager.get_stock_data(
-            stock_code='A066570',
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        # 감성 분석 결과 로드
-        sentiment_data = get_sentiment_data(
-            db_manager=db_manager,
-            stock_code='A066570',
-            start_date=start_date,
-            end_date=end_date,
-            logger=logger
-        )
-        
-        # 경제 데이터 로드
-        economic_data = db_manager.get_economic_data(
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        return stock_data, sentiment_data, economic_data
-        
-    except Exception as e:
-        logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
-        raise
+    def load_training_data(self, stock_name: str) -> pd.DataFrame:
+        """학습 데이터 로드"""
+        try:
+            query = """
+            SELECT time, open_price, high_price, low_price, close_price, volume
+            FROM stock_prices
+            WHERE stock_name = %s
+            ORDER BY time
+            """
+            params = (stock_name,)
+            results = self.db_manager.execute_query(query, params)
+            return pd.DataFrame(results)
+        except Exception as e:
+            logger.error(f"학습 데이터 로드 중 오류 발생: {str(e)}")
+            return None
+
+    def save_training_results(self, stock_name: str, history: Dict[str, List[float]]) -> None:
+        """학습 결과 저장"""
+        try:
+            # 학습 결과를 데이터베이스에 저장
+            query = """
+            INSERT INTO model_training_history (
+                stock_name, training_date, loss, val_loss, mae, val_mae
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            params = (
+                stock_name,
+                datetime.now(),
+                history['loss'][-1],
+                history['val_loss'][-1],
+                history['mae'][-1],
+                history['val_mae'][-1]
+            )
+            self.db_manager.execute_query(query, params)
+            
+            # 모델 저장
+            model_path = os.path.join('models', 'checkpoints', f'{stock_name}_model.h5')
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            self.models[stock_name].model.save(model_path)
+            
+            logger.info(f"{stock_name} 학습 결과 저장 완료")
+        except Exception as e:
+            logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
+            raise
+
+    def train_all_stocks(self) -> Dict[str, Any]:
+        """모든 종목에 대한 학습 수행"""
+        results = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # 각 종목에 대한 학습 작업 제출
+            future_to_stock = {
+                executor.submit(self.train_single_stock, stock_name, model): stock_name
+                for stock_name, model in self.models.items()
+            }
+            
+            # 진행 상황 표시
+            for future in tqdm(as_completed(future_to_stock), total=len(future_to_stock), desc="종목 학습 진행률"):
+                stock_name = future_to_stock[future]
+                try:
+                    result = future.result()
+                    results[stock_name] = result
+                except Exception as e:
+                    logger.error(f"{stock_name} 처리 중 오류 발생: {str(e)}")
+                    results[stock_name] = {
+                        'status': 'error',
+                        'error': str(e)
+                    }
+
+        return results
+
+    def generate_report(self, results: Dict[str, Any]) -> None:
+        """학습 결과 리포트 생성"""
+        try:
+            success_count = sum(1 for r in results.values() if r['status'] == 'success')
+            error_count = len(results) - success_count
+            
+            report = f"""
+            학습 결과 리포트
+            ==============
+            총 종목 수: {len(results)}
+            성공: {success_count}
+            실패: {error_count}
+            
+            실패한 종목:
+            {chr(10).join(f"- {stock}: {result['error']}" for stock, result in results.items() if result['status'] == 'error')}
+            
+            성공한 종목의 학습 결과:
+            {chr(10).join(f"- {stock}: loss={result['history']['loss'][-1]:.4f}, val_loss={result['history']['val_loss'][-1]:.4f}" 
+                         for stock, result in results.items() if result['status'] == 'success')}
+            """
+            
+            logger.info(report)
+            
+            # 리포트를 파일로 저장
+            report_path = os.path.join('data', 'reports', f'training_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
+            os.makedirs(os.path.dirname(report_path), exist_ok=True)
+            
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(report)
+                
+            logger.info(f"리포트가 저장되었습니다: {report_path}")
+            
+        except Exception as e:
+            logger.error(f"리포트 생성 중 오류 발생: {str(e)}")
+            raise
 
 def main():
     """메인 실행 함수"""
     try:
-        # 로거 설정
-        logger = setup_logger()
-        logger.info("LG전자 주가 예측 모델 학습을 시작합니다.")
+        logger.info("모델 학습을 시작합니다.")
         
         # 데이터베이스 연결
         db_manager = DatabaseManager()
-        logger.info("데이터베이스 연결 성공")
         
-        # 학습 기간 설정
-        end_date = '2025-03-26'  # 3월 26일까지의 데이터 사용
+        # 학습기 초기화
+        trainer = StockTrainer()
+        trainer.initialize_models()
         
-        # 가장 오래된 데이터 날짜 조회
-        query = """
-        SELECT MIN(time) as start_date
-        FROM stock_prices
-        WHERE stock_code = 'A066570';
-        """
-        result = db_manager.execute_query(query)
+        # 모든 종목 학습
+        results = trainer.train_all_stocks()
         
-        if not result or not result[0] or not result[0]['start_date']:
-            logger.error("LG전자 주가 데이터가 없습니다. 먼저 주가 데이터를 수집해주세요.")
-            return
-            
-        start_date = result[0]['start_date'].strftime('%Y-%m-%d')
+        # 결과 리포트 생성
+        trainer.generate_report(results)
         
-        logger.info(f"학습 기간: {start_date} ~ {end_date}")
-        
-        # 모델 초기화
-        model = LGElectronicsModel()
-        
-        # 학습 데이터 로드
-        logger.info("학습 데이터 로드 중...")
-        stock_data, sentiment_data, economic_data = load_training_data(db_manager, start_date, end_date, logger)
-        
-        if stock_data.empty:
-            logger.error("주가 데이터가 비어있습니다.")
-            return
-            
-        # 데이터 전처리
-        logger.info("데이터 전처리 중...")
-        X_train, y_train, X_val, y_val, X_test, y_test, scaler = model.prepare_training_data()
-        
-        # 모델 학습
-        logger.info("모델 학습 시작...")
-        model.train(X_train, y_train, X_val, y_val)
-        
-        # 모델 평가
-        logger.info("모델 평가 중...")
-        metrics = model.evaluate(X_test, y_test)
-        
-        # 결과 출력
-        logger.info(f"학습 완료! 평가 지표: {metrics}")
+        logger.info("모든 종목의 학습이 완료되었습니다.")
         
     except Exception as e:
-        logger.error(f"학습 중 오류가 발생했습니다: {str(e)}")
+        logger.error(f"학습 중 오류 발생: {str(e)}")
         raise
     finally:
-        if 'db_manager' in locals():
-            db_manager.close()
-            logger.info("데이터베이스 연결 종료")
+        # 데이터베이스 연결 종료
+        db_manager.close()
+        logger.info("데이터베이스 연결이 종료되었습니다.")
 
 if __name__ == "__main__":
     main() 

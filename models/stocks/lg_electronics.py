@@ -1,26 +1,72 @@
 import os
-import pandas as pd
+import sys
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from datetime import datetime, timedelta
 import logging
 from typing import Dict, Any, Optional, Tuple, List
+import random
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
+from utils.date_utils import get_next_five_business_days
 
-# 로거 설정
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# GPU 메모리 설정
-gpus = tf.config.experimental.list_physical_devices('GPU')
+# GPU 설정 및 혼합정밀도
+gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        logger.info("GPU 메모리 설정 완료")
+        logger.info(f"GPU 사용 가능: {gpus[0]}")
+        tf.keras.mixed_precision.set_global_policy('mixed_float16')
+        logger.info("Mixed Precision 활성화됨")
     except RuntimeError as e:
-        logger.error(f"GPU 메모리 설정 실패: {e}")
+        logger.error(f"GPU 설정 오류: {e}")
+else:
+    logger.warning("GPU를 찾을 수 없습니다. CPU를 사용합니다.")
+
+# 세션 정리
+tf.keras.backend.clear_session()
+try:
+    tf.compat.v1.reset_default_graph()
+except Exception:
+    pass
+
+# 환경 변수 및 최적화
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+
+tf.config.optimizer.set_jit(True)
+tf.config.optimizer.set_experimental_options({
+    "layout_optimizer": True,
+    "constant_folding": True,
+    "shape_optimization": True,
+    "remapping": True,
+    "arithmetic_optimization": True,
+    "dependency_optimization": True,
+    "loop_optimization": True,
+    "function_optimization": True,
+    "debug_stripper": True,
+    "disable_model_pruning": False,
+    "scoped_allocator_optimization": True,
+    "pin_to_host_optimization": True,
+    "implementation_selector": True,
+    "auto_mixed_precision": True
+})
+
+logger.info(f"TensorFlow 버전: {tf.__version__}")
+
+# 시드 고정
+SEED = 42
+os.environ['PYTHONHASHSEED'] = str(SEED)
+os.environ['TF_DETERMINISTIC_OPS'] = '1'
+os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+random.seed(SEED)
 
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
@@ -28,12 +74,17 @@ class LGElectronicsModel(BasePricePredictModel):
             stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
-            batch_size=32
+            batch_size=128  # 배치 크기 증가
         )
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
         self.num_models = 3  # 앙상블 모델 수
+        self.logger = logging.getLogger(__name__)
+        
+        # GPU 사용 가능 여부 확인
+        self.device = tf.config.list_physical_devices('GPU')[0] if tf.config.list_physical_devices('GPU') else 'CPU'
+        self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
 
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
@@ -106,7 +157,9 @@ class LGElectronicsModel(BasePricePredictModel):
             metrics = self.evaluate(X_test, y_test)
             
             # 모델 저장
-            self.save_model(f'models/stocks/{self.stock_code}')
+            save_dir = os.path.join('models', 'checkpoints')
+            os.makedirs(save_dir, exist_ok=True)
+            self.save_model(os.path.join(save_dir, f'{self.stock_name}_model.h5'))
             
             return metrics
             
@@ -145,84 +198,109 @@ class LGElectronicsModel(BasePricePredictModel):
         """저장된 앙상블 모델 로드"""
         try:
             for i in range(self.num_models):
-                model_path = f'models/checkpoints/lg_electronics_model_{i+1}.h5'
+                model_path = os.path.join('models', 'checkpoints', f'{self.stock_name}_model_{i+1}.h5')
                 if os.path.exists(model_path):
                     model = tf.keras.models.load_model(model_path, 
                         custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse})
                     self.models.append(model)
-                    logger.info(f"모델 {i+1} 로드 완료")
+                    self.logger.info(f"모델 {i+1} 로드 완료")
                 else:
-                    logger.error(f"모델 파일을 찾을 수 없습니다: {model_path}")
+                    self.logger.error(f"모델 파일을 찾을 수 없습니다: {model_path}")
                     raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {model_path}")
             
             if not self.models:
                 raise ValueError("모든 모델 로드 실패")
                 
         except Exception as e:
-            logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+            self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
             raise
     
     def train(self, X_train, y_train, X_val, y_val):
         """앙상블 모델 학습"""
         try:
-            # 특성 수 설정
             if self.n_features is None:
                 self.n_features = X_train.shape[2]
                 self.logger.info(f"특성 수 설정: {self.n_features}")
             
-            # 각 모델 학습
+            # 현재 사용 중인 디바이스 확인
+            self.logger.info(f"학습 시작 - 사용 중인 디바이스: {self.device}")
+            
             histories = []
             for i in range(self.num_models):
                 self.logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
                 
-                # 모델 빌드
                 model = self.build_model()
                 
-                # 콜백 설정
+                # 체크포인트 저장 경로 설정
+                save_dir = os.path.join('models', 'checkpoints')
+                os.makedirs(save_dir, exist_ok=True)
+                checkpoint_path = os.path.join(save_dir, f'{self.stock_name}_model_{i+1}.h5')
+                
                 callbacks = [
                     tf.keras.callbacks.EarlyStopping(
-                        monitor='val_loss',
-                        patience=120,
+                        monitor='loss',
+                        patience=50,
                         restore_best_weights=True,
                         min_delta=0.0001
                     ),
                     tf.keras.callbacks.ReduceLROnPlateau(
-                        monitor='val_loss',
-                        factor=0.15,
-                        patience=25,
-                        min_lr=1e-7,
+                        monitor='loss',
+                        factor=0.2,
+                        patience=15,
+                        min_lr=1e-6,
                         min_delta=0.0001
                     ),
                     tf.keras.callbacks.ModelCheckpoint(
-                        f'models/checkpoints/lg_electronics_model_{i+1}.h5',
-                        monitor='val_loss',
+                        checkpoint_path,
+                        monitor='loss',
                         save_best_only=True
                     )
                 ]
                 
-                # 데이터셋 최적화
+                # 데이터셋 최적화 - 메모리 효율적인 방식으로 변경
                 train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
                 train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=50000)
-                train_dataset = train_dataset.batch(40)
+                train_dataset = train_dataset.shuffle(buffer_size=100000)  # 버퍼 크기 증가
+                train_dataset = train_dataset.batch(self.batch_size)
+                train_dataset = train_dataset.repeat()
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
-                val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
-                val_dataset = val_dataset.cache()
-                val_dataset = val_dataset.batch(40)
-                val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+                # 검증 데이터셋이 있는 경우에만 설정
+                if len(X_val) > 0:
+                    val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+                    val_dataset = val_dataset.cache()
+                    val_dataset = val_dataset.batch(self.batch_size)
+                    val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+                    validation_data = val_dataset
+                    validation_steps = max(1, len(X_val) // self.batch_size)
+                else:
+                    validation_data = None
+                    validation_steps = None
+                
+                # steps_per_epoch 계산 수정
+                steps_per_epoch = max(1, len(X_train) // self.batch_size)
                 
                 # 모델 학습
                 history = model.fit(
                     train_dataset,
-                    validation_data=val_dataset,
-                    epochs=450,
+                    validation_data=validation_data,
+                    epochs=300,
+                    steps_per_epoch=steps_per_epoch,
+                    validation_steps=validation_steps,
                     callbacks=callbacks,
                     verbose=1
                 )
                 
+                # 학습된 모델 저장
+                model.save(checkpoint_path)
+                self.logger.info(f"모델 {i+1} 저장 완료: {checkpoint_path}")
+                
+                # 학습 이력 저장
                 histories.append(history.history)
                 self.models.append(model)
+                
+                # 메모리 정리
+                tf.keras.backend.clear_session()
                 
             return histories
             
@@ -321,77 +399,81 @@ class LGElectronicsModel(BasePricePredictModel):
             logger.error(f"경제지표 데이터 로드 중 오류 발생: {str(e)}")
             raise
     
-    def build_model(self):
+    def build_model(self, input_shape=None):
         """LG전자 특화 모델 구조 정의"""
-        if self.n_features is None:
-            logger.warning("n_features가 설정되지 않았습니다. 기본값 30을 사용합니다.")
-            self.n_features = 30
+        try:
+            if input_shape is None:
+                input_shape = (self.sequence_length, self.n_features)
             
-        # 입력 레이어
-        inputs = tf.keras.layers.Input(shape=(self.sequence_length, self.n_features))
-        
-        # Multi-scale Convolutional Input (MCI)
-        conv_outputs = []
-        kernel_sizes = [2, 3, 5, 7, 11]  # 다양한 시간 스케일
-        for kernel_size in kernel_sizes:
-            conv = tf.keras.layers.Conv1D(128, kernel_size=kernel_size, padding='same', activation='relu')(inputs)
-            conv = tf.keras.layers.BatchNormalization()(conv)
-            conv_outputs.append(conv)
-        
-        # 컨볼루션 출력 결합
-        x = tf.keras.layers.Concatenate()(conv_outputs)
-        
-        # Attention 메커니즘
-        attention_output = tf.keras.layers.MultiHeadAttention(
-            num_heads=8,
-            key_dim=128
-        )(x, x)
-        
-        # Residual connection
-        x = tf.keras.layers.Add()([x, attention_output])
-        
-        # GRU 레이어
-        gru_output = tf.keras.layers.GRU(256, return_sequences=True)(x)
-        gru_output = tf.keras.layers.Dropout(0.3)(gru_output)
-        
-        # 추가 Attention 레이어
-        attention_output2 = tf.keras.layers.MultiHeadAttention(
-            num_heads=8,
-            key_dim=256
-        )(gru_output, gru_output)
-        
-        # Residual connection
-        x = tf.keras.layers.Add()([gru_output, attention_output2])
-        
-        # 시퀀스의 마지막 타임스텝만 선택
-        x = tf.keras.layers.Lambda(lambda x: x[:, -1, :])(x)
-        
-        # Dense 레이어
-        x = tf.keras.layers.Dense(256, activation='relu')(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Dropout(0.3)(x)
-        
-        x = tf.keras.layers.Dense(128, activation='relu')(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Dropout(0.3)(x)
-        
-        # 출력 레이어 (5% 제한을 위한 tanh 활성화 함수 사용)
-        outputs = tf.keras.layers.Dense(5, activation='tanh')(x) * 0.05  # tanh의 출력 범위를 -0.05에서 0.05로 조정
-        
-        # 모델 생성
-        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
-        
-        # 컴파일
-        optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)  # 더 안정적인 학습을 위해 학습률 감소
-        model.compile(
-            optimizer=optimizer,
-            loss=enhanced_weighted_time_mse,
-            metrics=['mae'],
-            jit_compile=True
-        )
-        
-        logger.info(f"모델 구조 생성 완료 - 입력: {self.sequence_length}x{self.n_features}, 출력: 5")
-        return model
+            # 입력 레이어
+            inputs = tf.keras.layers.Input(shape=input_shape)
+            
+            # Multi-scale Convolutional Input (MCI)
+            conv_outputs = []
+            kernel_sizes = [2, 3, 5, 7, 11]  # 다양한 시간 스케일
+            for kernel_size in kernel_sizes:
+                conv = tf.keras.layers.Conv1D(128, kernel_size=kernel_size, padding='same', activation='relu')(inputs)
+                conv = tf.keras.layers.BatchNormalization()(conv)
+                conv_outputs.append(conv)
+            
+            # 컨볼루션 출력 결합
+            x = tf.keras.layers.Concatenate()(conv_outputs)
+            
+            # Attention 메커니즘
+            attention_output = tf.keras.layers.MultiHeadAttention(
+                num_heads=8,
+                key_dim=128
+            )(x, x)
+            
+            # Residual connection
+            x = tf.keras.layers.Add()([x, attention_output])
+            
+            # GRU 레이어
+            gru_output = tf.keras.layers.GRU(256, return_sequences=True)(x)
+            gru_output = tf.keras.layers.Dropout(0.3)(gru_output)
+            
+            # 추가 Attention 레이어
+            attention_output2 = tf.keras.layers.MultiHeadAttention(
+                num_heads=8,
+                key_dim=256
+            )(gru_output, gru_output)
+            
+            # Residual connection
+            x = tf.keras.layers.Add()([gru_output, attention_output2])
+            
+            # 시퀀스의 마지막 타임스텝만 선택
+            x = tf.keras.layers.Lambda(lambda x: x[:, -1, :])(x)
+            
+            # Dense 레이어
+            x = tf.keras.layers.Dense(256, activation='relu')(x)
+            x = tf.keras.layers.BatchNormalization()(x)
+            x = tf.keras.layers.Dropout(0.3)(x)
+            
+            x = tf.keras.layers.Dense(128, activation='relu')(x)
+            x = tf.keras.layers.BatchNormalization()(x)
+            x = tf.keras.layers.Dropout(0.3)(x)
+            
+            # 출력 레이어 (5% 제한을 위한 tanh 활성화 함수 사용)
+            outputs = tf.keras.layers.Dense(1, activation='tanh')(x) * 0.05
+            
+            # 모델 생성
+            model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+            
+            # 컴파일
+            optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)
+            model.compile(
+                optimizer=optimizer,
+                loss=enhanced_weighted_time_mse,
+                metrics=['mae'],
+                jit_compile=True  # XLA JIT 컴파일 활성화
+            )
+            
+            logger.info(f"모델 구조 생성 완료 - 입력: {input_shape}, 출력: 1")
+            return model
+            
+        except Exception as e:
+            self.logger.error(f"모델 구축 중 오류 발생: {str(e)}")
+            raise
     
     def get_latest_price(self) -> float:
         """가장 최근 주가 조회"""
@@ -418,70 +500,68 @@ class LGElectronicsModel(BasePricePredictModel):
             return 81800.0
     
     def predict_next_five_days(self, start_date: datetime) -> List[Dict]:
-        """다음 5일 예측"""
+        """다음 5일 주가 예측"""
         try:
+            # 모델이 없으면 학습 수행
             if not self.models:
-                raise ValueError("모델이 로드되지 않았습니다. 먼저 모델을 로드해주세요.")
+                logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
+                self.train_model()
+                logger.info("모델 학습이 완료되었습니다.")
             
-            # 1. 이전 예측값 조회
-            end_date = start_date + timedelta(days=4)
-            previous_predictions = self.get_previous_predictions(start_date, end_date)
+            # 다음 5개 영업일 계산
+            business_days = get_next_five_business_days(start_date)
             
-            # 2. 새로운 데이터로 예측
-            # 최근 20일 데이터를 가져와서 예측에 사용
-            query_start_date = start_date - timedelta(days=20)
-            stock_data = self.load_stock_data()
-            sentiment_data = self.load_sentiment_data()
-            economic_data = self.load_economic_data()
+            # 최근 주가 데이터 로드
+            data = self.load_data()
+            recent_data = data.tail(self.sequence_length)
             
-            logger.info(f"주가 데이터: {len(stock_data)}행")
-            logger.info(f"감성 데이터: {len(sentiment_data)}행")
-            logger.info(f"경제 데이터: {len(economic_data)}행")
+            # 데이터 전처리
+            processed_data = self.enhanced_preprocessing(recent_data)
             
             # 예측 데이터 준비
-            X = self.data_processor.prepare_prediction_data(
-                stock_data, sentiment_data, economic_data, self.sequence_length
-            )
+            X, _ = self.prepare_data(processed_data)
             
-            # 앙상블 예측 수행
             predictions = []
-            for model in self.models:
-                pred = model.predict(X)
-                predictions.append(pred)
-            new_predictions = np.mean(predictions, axis=0)[0]  # 앙상블 평균
+            current_data = X[-1:]
             
-            # 3. 예측값 조정
-            adjusted_predictions = []
-            last_actual_price = float(stock_data['close'].iloc[-1])
-            
-            for i in range(5):
-                target_date = start_date + timedelta(days=i)
+            # 각 영업일에 대해 예측 수행
+            for target_date in business_days:
+                # 앙상블 예측
+                ensemble_predictions = []
+                for model in self.models:
+                    pred = model.predict(current_data, verbose=0)
+                    ensemble_predictions.append(pred[0][0])
                 
-                if i == 0:
-                    # 첫날은 실제값 사용
-                    predicted_price = last_actual_price
-                else:
-                    # 이전 예측값이 있는 경우 조정
-                    if not previous_predictions.empty and i < len(previous_predictions):
-                        prev_pred = previous_predictions.iloc[i-1]['predicted_price']
-                        next_pred = last_actual_price * (1 + float(new_predictions[i]))
-                        adjustment = self.calculate_prediction_adjustment(
-                            last_actual_price, prev_pred, next_pred
-                        )
-                        predicted_price = next_pred + adjustment
-                    else:
-                        # 이전 예측값이 없는 경우 현재 예측값 사용
-                        predicted_price = last_actual_price * (1 + float(new_predictions[i]))
+                # 예측값 평균 계산
+                predicted_price = np.mean(ensemble_predictions)
                 
-                # 100원 단위로 반올림
-                predicted_price = round(predicted_price / 100) * 100
+                # 예측값 역변환
+                predicted_price = self.scaler.inverse_transform(
+                    np.concatenate([np.zeros((1, 3)), np.array([[predicted_price]]), np.zeros((1, 16))], axis=1)
+                )[0, 3]
                 
-                adjusted_predictions.append({
+                # 이전 예측값 조회
+                prev_predictions = self.get_previous_predictions(start_date, target_date)
+                
+                # 예측값 조정
+                if not prev_predictions.empty:
+                    actual_price = self.get_latest_price()
+                    prev_predicted_price = prev_predictions.iloc[-1]['predicted_price']
+                    adjustment = self.calculate_prediction_adjustment(
+                        actual_price, prev_predicted_price, predicted_price
+                    )
+                    predicted_price += adjustment
+                
+                predictions.append({
                     'date': target_date,
                     'price': predicted_price
                 })
+                
+                # 다음 예측을 위한 데이터 업데이트
+                current_data = np.roll(current_data, -1, axis=1)
+                current_data[0, -1] = predicted_price
             
-            return adjusted_predictions
+            return predictions
             
         except Exception as e:
             logger.error(f"예측 중 오류 발생: {str(e)}")
