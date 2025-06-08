@@ -39,86 +39,21 @@ def create_stock_prices_table():
             foreign_holding_ratio DECIMAL(5,2)
         );
         """, None),
-        ("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_name = 'stock_prices') THEN PERFORM create_hypertable('stock_prices', 'time'); END IF; END $$;", None),
-        ("CREATE INDEX IF NOT EXISTS idx_stock_prices_code ON stock_prices (stock_code, time DESC);", None),
-        # Add unique constraint if it doesn't exist
-        ("""
-        DO $$ 
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint 
-                WHERE conname = 'stock_prices_time_stock_code_key'
-            ) THEN
-                ALTER TABLE stock_prices ADD CONSTRAINT stock_prices_time_stock_code_key 
-                UNIQUE (time, stock_code);
-            END IF;
-        END $$;
-        """, None),
-        # Add missing columns if they don't exist
-        ("""
-        DO $$ 
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'stock_prices' AND column_name = 'market_cap') THEN
-                ALTER TABLE stock_prices ADD COLUMN market_cap BIGINT;
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'stock_prices' AND column_name = 'foreign_holding') THEN
-                ALTER TABLE stock_prices ADD COLUMN foreign_holding BIGINT;
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'stock_prices' AND column_name = 'foreign_holding_ratio') THEN
-                ALTER TABLE stock_prices ADD COLUMN foreign_holding_ratio DECIMAL(5,2);
-            END IF;
-        END $$;
-        """, None)
+        ("SELECT create_hypertable('stock_prices', 'time');", None),
+        ("CREATE INDEX IF NOT EXISTS idx_stock_prices_code ON stock_prices (stock_code, time DESC);", None)
     ]
     execute_transaction(queries)
-    print("Stock prices table created/updated successfully!")
+    print("Stock prices table created successfully!")
 
 def get_date_range():
-    """2025년 3월 21일까지의 데이터를 가져오도록 설정"""
-    end_date = datetime(2025, 3, 26)
+    """고정된 종료일(20250321)과 그로부터 500일 전의 시작일을 계산하여 반환"""
+    end_date = datetime.strptime('20250321', '%Y%m%d')
     start_date = end_date - timedelta(days=500)
-    # YYYYMMDD 형식으로 변환
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
-    """종목코드 정리
-    예: 'A000070' -> '000070'
-    """
-    # 괄호와 알파벳 제거
-    code = stock_code.split('(')[0].strip()
-    # 'A' 접두사 제거
-    code = code.replace('A', '')
-    # 6자리로 맞추기
-    return code.zfill(6)
-
-def retry_on_error(func, max_retries=3, delay=1):
-    """API 호출 실패 시 재시도하는 데코레이터"""
-    def wrapper(*args, **kwargs):
-        for attempt in range(max_retries):
-            try:
-                return func(*args, **kwargs)
-            except (RequestException, json.JSONDecodeError) as e:
-                if attempt == max_retries - 1:  # 마지막 시도였다면
-                    raise
-                print(f"  - 시도 {attempt + 1}/{max_retries} 실패, {delay}초 후 재시도...")
-                time.sleep(delay)
-        return None
-    return wrapper
-
-@retry_on_error
-def get_stock_data_with_retry(start_date, end_date, code):
-    """재시도 로직이 포함된 주가 데이터 조회"""
-    return stock.get_market_ohlcv_by_date(start_date, end_date, code)
-
-@retry_on_error
-def get_market_cap_with_retry(start_date, end_date, code):
-    """재시도 로직이 포함된 시가총액 데이터 조회"""
-    return stock.get_market_cap_by_date(start_date, end_date, code)
-
-@retry_on_error
-def get_foreign_holding_with_retry(code, start_date, end_date):
-    """재시도 로직이 포함된 외국인 보유량 데이터 조회"""
-    return stock.get_exhaustion_rates_of_foreign_investment_by_ticker(code, start_date, end_date)
+    """종목코드에서 'A' 접두사 제거"""
+    return stock_code.replace('A', '')
 
 def fetch_stock_data(stock_code, start_date, end_date):
     """PyKrx를 사용하여 주식 데이터 가져오기"""
@@ -127,65 +62,15 @@ def fetch_stock_data(stock_code, start_date, end_date):
         clean_code = clean_stock_code(stock_code)
         print(f"  - 정리된 종목코드: {clean_code}")
         
-        # 주가 데이터 가져오기
-        try:
-            print(f"  - 주가 데이터 가져오기 시도 중...")
-            print(f"  - 시작일: {start_date}, 종료일: {end_date}")
-            
-            # 종목코드가 유효한지 확인
-            try:
-                stock_name = stock.get_market_ticker_name(clean_code)
-                if not stock_name:
-                    print(f"  - 유효하지 않은 종목코드")
-                    return None, 0
-                print(f"  - 종목명: {stock_name}")
-            except Exception as e:
-                print(f"  - 종목코드 확인 실패: {str(e)}")
-                return None, 0
-                
-            # 2년 단위로 데이터 가져오기
-            start_dt = datetime.strptime(start_date, "%Y%m%d")
-            end_dt = datetime.strptime(end_date, "%Y%m%d")
-            all_data = []
-            
-            current_start = start_dt
-            while current_start < end_dt:
-                current_end = min(current_start + timedelta(days=730), end_dt)
-                current_start_str = current_start.strftime("%Y%m%d")
-                current_end_str = current_end.strftime("%Y%m%d")
-                
-                print(f"  - 기간 데이터 가져오기: {current_start_str} ~ {current_end_str}")
-                try:
-                    df = stock.get_market_ohlcv_by_date(current_start_str, current_end_str, clean_code, adjusted=False)
-                    if not df.empty:
-                        all_data.append(df)
-                except Exception as e:
-                    print(f"  - 해당 기간 데이터 가져오기 실패: {str(e)}")
-                
-                current_start = current_end + timedelta(days=1)
-                time.sleep(1)  # API 호출 간격 조절
-            
-            if not all_data:
-                print(f"  - 데이터가 비어있음")
-                return None, 0
-                
-            # 모든 데이터 합치기
-            df = pd.concat(all_data)
-            
-            # 컬럼 확인
-            required_columns = ['시가', '고가', '저가', '종가', '거래량', '거래대금']
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            if missing_columns:
-                print(f"  - 누락된 컬럼: {missing_columns}")
-                return None, 0
-                
-            print(f"  - 주가 데이터 가져오기 성공!")
-            print(f"  - 데이터 샘플:\n{df.head()}")
-        except Exception as e:
-            print(f"  - 주가 데이터 가져오기 실패: {str(e)}")
-            print(f"  - 상세 정보: {type(e).__name__}")
-            if hasattr(e, 'response'):
-                print(f"  - API 응답: {e.response.text if hasattr(e.response, 'text') else 'No response text'}")
+        # 일별 OHLCV 데이터 가져오기
+        print(f"  - 주가 데이터 가져오기 시도 중...")
+        print(f"  - 시작일: {start_date}, 종료일: {end_date}")
+        
+        df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
+        
+        # 데이터가 없는 경우
+        if df.empty:
+            print(f"  - 데이터가 비어있음")
             return None, 0
             
         # 컬럼명 변경
@@ -201,12 +86,25 @@ def fetch_stock_data(stock_code, start_date, end_date):
         
         # 종목코드와 종목명 추가
         df['stock_code'] = stock_code
-        df['stock_name'] = stock_name
+        df['stock_name'] = stock.get_market_ticker_name(clean_code)
         
         # 날짜를 인덱스에서 컬럼으로 변경
         df = df.reset_index()
         df = df.rename(columns={'날짜': 'time'})
         
+        # 시가총액 데이터 가져오기
+        market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
+        if not market_cap.empty:
+            df['market_cap'] = market_cap['시가총액']
+        
+        # 외국인/기관 보유량 데이터 가져오기
+        foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
+        if not foreign_holding.empty:
+            df['foreign_holding'] = foreign_holding['외국인보유량']
+            df['foreign_holding_ratio'] = foreign_holding['외국인보유비율']
+        
+        print(f"  - 주가 데이터 가져오기 성공!")
+        print(f"  - 데이터 샘플:\n{df.head()}")
         return df, len(df)
         
     except Exception as e:
@@ -214,33 +112,9 @@ def fetch_stock_data(stock_code, start_date, end_date):
         print(f"상세 정보: {type(e).__name__}")
         return None, 0
 
-def modify_table_structure():
-    """테이블 구조 수정"""
-    queries = [
-        ("""
-        DO $$ 
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'stock_prices' AND column_name = 'market_cap') THEN
-                ALTER TABLE stock_prices ADD COLUMN market_cap BIGINT;
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'stock_prices' AND column_name = 'foreign_holding') THEN
-                ALTER TABLE stock_prices ADD COLUMN foreign_holding BIGINT;
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'stock_prices' AND column_name = 'foreign_holding_ratio') THEN
-                ALTER TABLE stock_prices ADD COLUMN foreign_holding_ratio DECIMAL(5,2);
-            END IF;
-        END $$;
-        """, None)
-    ]
-    execute_transaction(queries)
-    print("Table structure updated successfully!")
-
 def fetch_stock_prices():
-    """KOSPI200 주가 데이터 수집"""
+    """주가 데이터를 가져와 데이터베이스에 저장"""
     print("📢 KOSPI200 주가 데이터를 가져오는 중...")
-    
-    # 테이블 구조 수정
-    modify_table_structure()
     
     # 시작일과 종료일 설정
     start_date, end_date = get_date_range()
@@ -304,7 +178,7 @@ def fetch_stock_prices():
                 row.get('foreign_holding'), row.get('foreign_holding_ratio')
             ) for _, row in combined_df.iterrows()])
         ]
-        execute_values_query(queries[0][0], queries[0][1])
+        execute_transaction(queries)
         
         print(f"\n💾 모든 데이터가 데이터베이스에 저장되었습니다.")
         print(f"📊 통계:")
