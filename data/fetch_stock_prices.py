@@ -123,11 +123,13 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 주가 데이터 가져오기
         try:
             print(f"  - 주가 데이터 가져오기 시도 중...")
-            df = get_stock_data_with_retry(start_date, end_date, clean_code)
-            if df is None or df.empty:
+            print(f"  - 시작일: {start_date}, 종료일: {end_date}")
+            df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
+            if df.empty:
                 print(f"  - 데이터가 비어있음")
                 return None, 0
             print(f"  - 주가 데이터 가져오기 성공!")
+            print(f"  - 데이터 샘플:\n{df.head()}")
         except Exception as e:
             print(f"  - 주가 데이터 가져오기 실패: {str(e)}")
             print(f"  - 상세 정보: {type(e).__name__}")
@@ -160,8 +162,8 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 시가총액 데이터 가져오기
         try:
             print(f"  - 시가총액 데이터 가져오기 시도 중...")
-            market_cap = get_market_cap_with_retry(start_date, end_date, clean_code)
-            if market_cap is not None and not market_cap.empty:
+            market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
+            if not market_cap.empty:
                 df = df.merge(market_cap[['시가총액']], left_on='time', right_index=True, how='left')
                 df = df.rename(columns={'시가총액': 'market_cap'})
                 print(f"  - 시가총액 데이터 가져오기 성공!")
@@ -175,8 +177,8 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 외국인/기관 보유량 데이터 가져오기
         try:
             print(f"  - 외국인 보유량 데이터 가져오기 시도 중...")
-            foreign_holding = get_foreign_holding_with_retry(clean_code, start_date, end_date)
-            if foreign_holding is not None and not foreign_holding.empty:
+            foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
+            if not foreign_holding.empty:
                 df = df.merge(foreign_holding[['외국인보유량', '외국인보유비율']], left_on='time', right_index=True, how='left')
                 df = df.rename(columns={
                     '외국인보유량': 'foreign_holding',
