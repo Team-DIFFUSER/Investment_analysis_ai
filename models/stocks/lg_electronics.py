@@ -13,20 +13,21 @@ from utils.date_utils import get_next_five_business_days
 # 로거 설정
 logger = logging.getLogger(__name__)
 
-# GPU 메모리 설정 - 최적화된 설정
-gpus = tf.config.experimental.list_physical_devices('GPU')
+# GPU 메모리 설정
+gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
+        # GPU 메모리 증가 허용
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-            # GPU 메모리 제한 설정 (전체 메모리의 90% 사용)
-            tf.config.experimental.set_virtual_device_configuration(
-                gpu,
-                [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=20730)]  # 23034MB의 90%
-            )
-        logger.info("GPU 메모리 설정 완료")
+        # GPU 메모리 제한 설정 (90% 사용)
+        tf.config.set_logical_device_configuration(
+            gpus[0],
+            [tf.config.LogicalDeviceConfiguration(memory_limit=1024 * 12)]  # 12GB 제한
+        )
+        logger.info("GPU 설정 완료")
     except RuntimeError as e:
-        logger.error(f"GPU 메모리 설정 실패: {e}")
+        logger.error(f"GPU 설정 중 오류 발생: {e}")
 
 # TensorFlow 성능 최적화
 tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일러 활성화
@@ -231,7 +232,7 @@ class LGElectronicsModel(BasePricePredictModel):
                 # 데이터셋 최적화
                 train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
                 train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=100000)  # 버퍼 크기 증가
+                train_dataset = train_dataset.shuffle(buffer_size=10000)  # 버퍼 크기 감소
                 train_dataset = train_dataset.batch(self.batch_size)
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
