@@ -76,46 +76,70 @@ def fetch_stock_data(stock_code, start_date, end_date):
         print(f"  - 주가 데이터 가져오기 시도 중...")
         print(f"  - 시작일: {start_date}, 종료일: {end_date}")
         
-        df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
-        
-        # 데이터가 없는 경우
-        if df.empty:
-            print(f"  - 데이터가 비어있음")
-            return None, 0
+        try:
+            # 종목명 먼저 확인
+            stock_name = stock.get_market_ticker_name(clean_code)
+            if not stock_name:
+                print(f"  - 유효하지 않은 종목코드")
+                return None, 0
+            print(f"  - 종목명: {stock_name}")
             
-        # 컬럼명 변경
-        column_names = {
-            '시가': 'open_price',
-            '고가': 'high_price',
-            '저가': 'low_price',
-            '종가': 'close_price',
-            '거래량': 'volume',
-            '거래대금': 'trading_value'
-        }
-        df = df.rename(columns=column_names)
-        
-        # 종목코드와 종목명 추가
-        df['stock_code'] = stock_code
-        df['stock_name'] = stock.get_market_ticker_name(clean_code)
-        
-        # 날짜를 인덱스에서 컬럼으로 변경
-        df = df.reset_index()
-        df = df.rename(columns={'날짜': 'time'})
-        
-        # 시가총액 데이터 가져오기
-        market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
-        if not market_cap.empty:
-            df['market_cap'] = market_cap['시가총액']
-        
-        # 외국인/기관 보유량 데이터 가져오기
-        foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
-        if not foreign_holding.empty:
-            df['foreign_holding'] = foreign_holding['외국인보유량']
-            df['foreign_holding_ratio'] = foreign_holding['외국인보유비율']
-        
-        print(f"  - 주가 데이터 가져오기 성공!")
-        print(f"  - 데이터 샘플:\n{df.head()}")
-        return df, len(df)
+            # 주가 데이터 가져오기
+            df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
+            
+            # 데이터가 없는 경우
+            if df.empty:
+                print(f"  - 데이터가 비어있음")
+                return None, 0
+                
+            # 컬럼명 변경
+            column_names = {
+                '시가': 'open_price',
+                '고가': 'high_price',
+                '저가': 'low_price',
+                '종가': 'close_price',
+                '거래량': 'volume',
+                '거래대금': 'trading_value'
+            }
+            df = df.rename(columns=column_names)
+            
+            # 종목코드와 종목명 추가
+            df['stock_code'] = stock_code
+            df['stock_name'] = stock_name
+            
+            # 날짜를 인덱스에서 컬럼으로 변경
+            df = df.reset_index()
+            df = df.rename(columns={'날짜': 'time'})
+            
+            # 시가총액 데이터 가져오기
+            try:
+                market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
+                if not market_cap.empty:
+                    df['market_cap'] = market_cap['시가총액']
+            except Exception as e:
+                print(f"  - 시가총액 데이터 가져오기 실패: {str(e)}")
+            
+            # 외국인/기관 보유량 데이터 가져오기
+            try:
+                foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
+                if not foreign_holding.empty:
+                    df['foreign_holding'] = foreign_holding['외국인보유량']
+                    df['foreign_holding_ratio'] = foreign_holding['외국인보유비율']
+            except Exception as e:
+                print(f"  - 외국인 보유량 데이터 가져오기 실패: {str(e)}")
+            
+            print(f"  - 주가 데이터 가져오기 성공!")
+            print(f"  - 데이터 샘플:\n{df.head()}")
+            return df, len(df)
+            
+        except json.JSONDecodeError as e:
+            print(f"  - API 응답 파싱 실패: {str(e)}")
+            print(f"  - API 응답이 유효한 JSON 형식이 아닙니다.")
+            return None, 0
+        except Exception as e:
+            print(f"  - 데이터 가져오기 실패: {str(e)}")
+            print(f"  - 상세 정보: {type(e).__name__}")
+            return None, 0
         
     except Exception as e:
         print(f"데이터 수집 중 오류 발생: {e}")
