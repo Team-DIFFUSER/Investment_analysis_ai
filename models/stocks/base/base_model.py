@@ -73,31 +73,31 @@ class BaseStockModel:
             df = df.dropna()
             
             # 기술적 지표 추가
-            df['MA5'] = df['Close'].rolling(window=5).mean()
-            df['MA20'] = df['Close'].rolling(window=20).mean()
-            df['MA60'] = df['Close'].rolling(window=60).mean()
+            df['MA5'] = df['close_price'].rolling(window=5).mean()
+            df['MA20'] = df['close_price'].rolling(window=20).mean()
+            df['MA60'] = df['close_price'].rolling(window=60).mean()
             
             # 변동성 지표
-            df['Volatility'] = df['Close'].pct_change().rolling(window=20).std()
+            df['Volatility'] = df['close_price'].pct_change().rolling(window=20).std()
             
             # 거래량 관련 지표
-            df['Volume_MA5'] = df['Volume'].rolling(window=5).mean()
-            df['Volume_MA20'] = df['Volume'].rolling(window=20).mean()
+            df['Volume_MA5'] = df['volume'].rolling(window=5).mean()
+            df['Volume_MA20'] = df['volume'].rolling(window=20).mean()
             
             # 가격 변화율
-            df['Price_Change'] = df['Close'].pct_change()
+            df['Price_Change'] = df['close_price'].pct_change()
             df['Price_Change_MA5'] = df['Price_Change'].rolling(window=5).mean()
             
             # RSI 계산
-            delta = df['Close'].diff()
+            delta = df['close_price'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             rs = gain / loss
             df['RSI'] = 100 - (100 / (1 + rs))
             
             # MACD 계산
-            exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-            exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+            exp1 = df['close_price'].ewm(span=12, adjust=False).mean()
+            exp2 = df['close_price'].ewm(span=26, adjust=False).mean()
             df['MACD'] = exp1 - exp2
             df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
             
@@ -114,7 +114,7 @@ class BaseStockModel:
         """학습 데이터 준비"""
         try:
             # 특성 선택
-            features = ['Open', 'High', 'Low', 'Close', 'Volume', 
+            features = ['open_price', 'high_price', 'low_price', 'close_price', 'volume', 
                        'MA5', 'MA20', 'MA60', 'Volatility',
                        'Volume_MA5', 'Volume_MA20', 'Price_Change',
                        'Price_Change_MA5', 'RSI', 'MACD', 'Signal_Line']
@@ -125,8 +125,8 @@ class BaseStockModel:
             X, y = [], []
             for i in range(len(scaled_data) - self.sequence_length):
                 X.append(scaled_data[i:(i + self.sequence_length)])
-                y.append(scaled_data[i + self.sequence_length, 3])  # Close 가격
-                
+                y.append(scaled_data[i + self.sequence_length, 3])  # close_price
+            
             return np.array(X), np.array(y)
             
         except Exception as e:
