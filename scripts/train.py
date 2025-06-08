@@ -165,6 +165,25 @@ class StockTrainer:
             success_count = sum(1 for r in results.values() if r['status'] == 'success')
             error_count = len(results) - success_count
             
+            # 성공한 종목의 학습 결과 문자열 생성
+            success_results = []
+            for stock, result in results.items():
+                if result['status'] == 'success':
+                    history = result.get('history', {})
+                    if history and isinstance(history, dict):
+                        loss = history.get('loss', [None])[-1]
+                        val_loss = history.get('val_loss', [None])[-1]
+                        loss_str = f"{loss:.4f}" if loss is not None else "N/A"
+                        val_loss_str = f"{val_loss:.4f}" if val_loss is not None else "N/A"
+                        success_results.append(f"- {stock}: loss={loss_str}, val_loss={val_loss_str}")
+                    else:
+                        success_results.append(f"- {stock}: 학습 히스토리 없음")
+            
+            # 실패한 종목 목록 생성
+            failed_stocks = [f"- {stock}: {result['error']}" 
+                           for stock, result in results.items() 
+                           if result['status'] == 'error']
+            
             report = f"""
             학습 결과 리포트
             ==============
@@ -173,11 +192,10 @@ class StockTrainer:
             실패: {error_count}
             
             실패한 종목:
-            {chr(10).join(f"- {stock}: {result['error']}" for stock, result in results.items() if result['status'] == 'error')}
+            {chr(10).join(failed_stocks) if failed_stocks else "없음"}
             
             성공한 종목의 학습 결과:
-            {chr(10).join(f"- {stock}: loss={result['history']['loss'][-1]:.4f}, val_loss={result['history']['val_loss'][-1]:.4f}" 
-                         for stock, result in results.items() if result['status'] == 'success')}
+            {chr(10).join(success_results) if success_results else "없음"}
             """
             
             logger.info(report)
