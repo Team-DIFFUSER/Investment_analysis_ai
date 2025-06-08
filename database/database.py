@@ -8,7 +8,7 @@ from contextlib import contextmanager
 import pandas as pd
 from datetime import datetime
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from dotenv import load_dotenv
 
 # 환경 변수 로드
@@ -75,6 +75,73 @@ class DatabaseManager:
             logger.error(f"테이블 생성 중 오류 발생: {str(e)}")
             raise
 
+    def execute_query(self, query: str, params: tuple = None) -> List[tuple]:
+        """쿼리 실행"""
+        try:
+            self.cur.execute(query, params)
+            if query.strip().upper().startswith('SELECT'):
+                return self.cur.fetchall()
+            self.conn.commit()
+            return []
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"쿼리 실행 중 오류 발생: {str(e)}")
+            raise
+
+    def execute_transaction(self, queries: List[Tuple[str, tuple]]) -> None:
+        """트랜잭션 실행"""
+        try:
+            for query, params in queries:
+                self.cur.execute(query, params)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"트랜잭션 실행 중 오류 발생: {str(e)}")
+            raise
+
+    def save_prediction(self, stock_code: str, stock_name: str, prediction_date: datetime, 
+                       target_date: datetime, predicted_price: float) -> None:
+        """예측 결과 저장"""
+        try:
+            query = """
+                INSERT INTO predicted_stock_prices 
+                (stock_code, stock_name, prediction_date, target_date, predicted_price)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            params = (stock_code, stock_name, prediction_date, target_date, predicted_price)
+            self.execute_query(query, params)
+        except Exception as e:
+            logger.error(f"예측 결과 저장 중 오류 발생: {str(e)}")
+            raise
+
+    def get_latest_predictions(self, stock_code: str, limit: int = 5) -> List[tuple]:
+        """최근 예측 결과 조회"""
+        try:
+            query = """
+                SELECT prediction_date, target_date, predicted_price
+                FROM predicted_stock_prices
+                WHERE stock_code = %s
+                ORDER BY prediction_date DESC, target_date
+                LIMIT %s
+            """
+            params = (stock_code, limit)
+            return self.execute_query(query, params)
+        except Exception as e:
+            logger.error(f"예측 결과 조회 중 오류 발생: {str(e)}")
+            raise
+
+    def close(self) -> None:
+        """데이터베이스 연결 종료"""
+        try:
+            if self.cur:
+                self.cur.close()
+            if self.conn:
+                self.conn.close()
+            logger.info("데이터베이스 연결 종료")
+        except Exception as e:
+            logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
+            raise
+
     def _connect(self) -> None:
         """데이터베이스 연결"""
         try:
@@ -123,24 +190,6 @@ class DatabaseManager:
             self._connect()
         return self.Session()
 
-    def close(self) -> None:
-        """데이터베이스 연결 종료"""
-        if self.engine:
-            self.engine.dispose()
-            logger.info("데이터베이스 연결 종료")
-
-    def execute_query(self, query: str, params: Optional[dict] = None) -> List[Dict[str, Any]]:
-        """SQL 쿼리 실행"""
-        try:
-            with self.get_db_cursor() as cursor:
-                cursor.execute(query, params or {})
-                if cursor.description:
-                    return cursor.fetchall()
-                return []
-        except Exception as e:
-            logger.error(f"쿼리 실행 중 오류 발생: {str(e)}")
-            raise
-
     def execute_values_query(self, query: str, data: List[tuple]) -> None:
         """여러 행의 데이터를 한 번에 삽입"""
         try:
@@ -149,31 +198,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"데이터 삽입 중 오류 발생: {str(e)}")
             raise
-
-    def execute_transaction(self, queries: List[tuple]) -> None:
-        """트랜잭션 실행"""
-        try:
-            with self.get_db_cursor() as cursor:
-                for query, params in queries:
-                    if params is None:
-                        cursor.execute(query)
-                    else:
-                        cursor.execute(query, params)
-        except Exception as e:
-            logger.error(f"트랜잭션 실행 중 오류 발생: {str(e)}")
-            raise
-
-    def save_prediction(self, stock_code: str, stock_name: str, prediction_date: datetime, 
-                       target_date: datetime, predicted_price: float) -> None:
-        """예측 결과 저장"""
-        query = """
-        INSERT INTO predicted_stock_prices (
-            stock_code, stock_name, prediction_date, target_date, predicted_price
-        ) VALUES (%s, %s, %s, %s, %s)
-        """
-        params = (stock_code, stock_name, prediction_date, target_date, predicted_price)
-        self.execute_query(query, params)
-        logger.info(f"예측 결과 저장 완료: {stock_code} - {target_date}")
 
     def get_stock_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """주가 데이터 조회"""
