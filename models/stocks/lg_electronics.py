@@ -140,7 +140,7 @@ class LGElectronicsModel(BasePricePredictModel):
         
         return X_train, y_train, X_val, y_val, X_test, y_test, self.scaler
 
-    def train_model(self) -> Dict[str, float]:
+    def train_model(self) -> Dict[str, List[float]]:
         """모델 학습 및 평가"""
         try:
             # 학습 데이터 준비
@@ -150,7 +150,7 @@ class LGElectronicsModel(BasePricePredictModel):
             self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
             
             # 모델 학습
-            self.train(X_train, y_train, X_val, y_val)
+            history = self.train(X_train, y_train, X_val, y_val)
             
             # 모델 평가
             metrics = self.evaluate(X_test, y_test)
@@ -160,10 +160,50 @@ class LGElectronicsModel(BasePricePredictModel):
             os.makedirs(save_dir, exist_ok=True)
             self.save_model(os.path.join(save_dir, f'{self.stock_name}_model.h5'))
             
-            return metrics
+            # 학습 히스토리와 평가 지표를 결합하여 반환
+            return {
+                'loss': history.history['loss'],
+                'val_loss': history.history['val_loss'],
+                'mae': history.history['mae'],
+                'val_mae': history.history['val_mae']
+            }
             
         except Exception as e:
             self.logger.error(f"모델 학습 중 오류 발생: {e}")
+            raise
+
+    def train(self, X_train, y_train, X_val, y_val) -> tf.keras.callbacks.History:
+        """모델 학습"""
+        try:
+            # 콜백 설정
+            callbacks = [
+                tf.keras.callbacks.EarlyStopping(
+                    monitor='val_loss',
+                    patience=10,
+                    restore_best_weights=True
+                ),
+                tf.keras.callbacks.ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.5,
+                    patience=5,
+                    min_lr=1e-6
+                )
+            ]
+            
+            # 모델 학습
+            history = self.model.fit(
+                X_train, y_train,
+                validation_data=(X_val, y_val),
+                epochs=100,
+                batch_size=self.batch_size,
+                callbacks=callbacks,
+                verbose=1
+            )
+            
+            return history
+            
+        except Exception as e:
+            self.logger.error(f"학습 중 오류 발생: {e}")
             raise
 
     def predict_next_day(self) -> float:
@@ -212,99 +252,6 @@ class LGElectronicsModel(BasePricePredictModel):
                 
         except Exception as e:
             self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
-            raise
-    
-    def train(self, X_train, y_train, X_val, y_val):
-        """앙상블 모델 학습"""
-        try:
-            if self.n_features is None:
-                self.n_features = X_train.shape[2]
-                self.logger.info(f"특성 수 설정: {self.n_features}")
-            
-            # 현재 사용 중인 디바이스 확인
-            self.logger.info(f"학습 시작 - 사용 중인 디바이스: {self.device}")
-            
-            histories = []
-            for i in range(self.num_models):
-                self.logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
-                
-                model = self.build_model()
-                
-                # 체크포인트 저장 경로 설정
-                save_dir = os.path.join('models', 'checkpoints')
-                os.makedirs(save_dir, exist_ok=True)
-                checkpoint_path = os.path.join(save_dir, f'{self.stock_name}_model_{i+1}.h5')
-                
-                callbacks = [
-                    tf.keras.callbacks.EarlyStopping(
-                        monitor='loss',
-                        patience=50,
-                        restore_best_weights=True,
-                        min_delta=0.0001
-                    ),
-                    tf.keras.callbacks.ReduceLROnPlateau(
-                        monitor='loss',
-                        factor=0.2,
-                        patience=15,
-                        min_lr=1e-6,
-                        min_delta=0.0001
-                    ),
-                    tf.keras.callbacks.ModelCheckpoint(
-                        checkpoint_path,
-                        monitor='loss',
-                        save_best_only=True
-                    )
-                ]
-                
-                # 데이터셋 최적화 - 메모리 효율적인 방식으로 변경
-                train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-                train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=100000)  # 버퍼 크기 증가
-                train_dataset = train_dataset.batch(self.batch_size)
-                train_dataset = train_dataset.repeat()
-                train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
-                
-                # 검증 데이터셋이 있는 경우에만 설정
-                if len(X_val) > 0:
-                    val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
-                    val_dataset = val_dataset.cache()
-                    val_dataset = val_dataset.batch(self.batch_size)
-                    val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
-                    validation_data = val_dataset
-                    validation_steps = max(1, len(X_val) // self.batch_size)
-                else:
-                    validation_data = None
-                    validation_steps = None
-                
-                # steps_per_epoch 계산 수정
-                steps_per_epoch = max(1, len(X_train) // self.batch_size)
-                
-                # 모델 학습
-                history = model.fit(
-                    train_dataset,
-                    validation_data=validation_data,
-                    epochs=300,
-                    steps_per_epoch=steps_per_epoch,
-                    validation_steps=validation_steps,
-                    callbacks=callbacks,
-                    verbose=1
-                )
-                
-                # 학습된 모델 저장
-                model.save(checkpoint_path)
-                self.logger.info(f"모델 {i+1} 저장 완료: {checkpoint_path}")
-                
-                # 학습 이력 저장
-                histories.append(history.history)
-                self.models.append(model)
-                
-                # 메모리 정리
-                tf.keras.backend.clear_session()
-                
-            return histories
-            
-        except Exception as e:
-            self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
             raise
     
     def load_stock_data(self) -> pd.DataFrame:
