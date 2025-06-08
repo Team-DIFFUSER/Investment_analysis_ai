@@ -123,12 +123,20 @@ def fetch_stock_data(stock_code, start_date, end_date):
         try:
             print(f"  - 주가 데이터 가져오기 시도 중...")
             print(f"  - 시작일: {start_date}, 종료일: {end_date}")
+            
             # 종목코드가 유효한지 먼저 확인
-            if not stock.get_market_ticker_name(clean_code):
-                print(f"  - 유효하지 않은 종목코드")
+            try:
+                stock_name = stock.get_market_ticker_name(clean_code)
+                if not stock_name:
+                    print(f"  - 유효하지 않은 종목코드")
+                    return None, 0
+                print(f"  - 종목명: {stock_name}")
+            except Exception as e:
+                print(f"  - 종목코드 확인 실패: {str(e)}")
                 return None, 0
                 
-            df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
+            # 주가 데이터 가져오기
+            df = stock.get_market_ohlcv(start_date, end_date, clean_code)
             if df.empty:
                 print(f"  - 데이터가 비어있음")
                 return None, 0
@@ -154,12 +162,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
         
         # 종목코드와 종목명 추가
         df['stock_code'] = stock_code
-        try:
-            df['stock_name'] = stock.get_market_ticker_name(clean_code)
-            print(f"  - 종목명 가져오기 성공: {df['stock_name'].iloc[0]}")
-        except Exception as e:
-            print(f"  - 종목명 가져오기 실패: {str(e)}")
-            df['stock_name'] = stock_code
+        df['stock_name'] = stock_name
         
         # 날짜를 인덱스에서 컬럼으로 변경
         df = df.reset_index()
@@ -168,7 +171,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 시가총액 데이터 가져오기
         try:
             print(f"  - 시가총액 데이터 가져오기 시도 중...")
-            market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
+            market_cap = stock.get_market_cap(start_date, end_date, clean_code)
             if not market_cap.empty:
                 df = df.merge(market_cap[['시가총액']], left_on='time', right_index=True, how='left')
                 df = df.rename(columns={'시가총액': 'market_cap'})
@@ -183,7 +186,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 외국인/기관 보유량 데이터 가져오기
         try:
             print(f"  - 외국인 보유량 데이터 가져오기 시도 중...")
-            foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
+            foreign_holding = stock.get_exhaustion_rates_of_foreign_investment(clean_code, start_date, end_date)
             if not foreign_holding.empty:
                 df = df.merge(foreign_holding[['외국인보유량', '외국인보유비율']], left_on='time', right_index=True, how='left')
                 df = df.rename(columns={
