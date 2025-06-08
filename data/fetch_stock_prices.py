@@ -4,15 +4,16 @@ from pathlib import Path
 import time
 from requests.exceptions import RequestException
 import json
+import requests
+import pandas as pd
+from datetime import datetime, timedelta
+from database.database import execute_query, execute_values_query, execute_transaction
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 project_root = str(Path(__file__).parent.parent)
 sys.path.append(project_root)
 
 from pykrx import stock
-import pandas as pd
-from datetime import datetime, timedelta
-from database.database import execute_query, execute_values_query, execute_transaction
 
 def create_stock_prices_table():
     """주가 데이터 테이블 생성"""
@@ -70,12 +71,12 @@ def get_date_range():
     """2025년 3월 21일까지의 데이터를 가져오도록 설정"""
     end_date = datetime(2025, 3, 26)
     start_date = end_date - timedelta(days=500)
-    # YYYY-MM-DD 형식으로 변환
-    return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+    # YYYYMMDD 형식으로 변환
+    return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
     """종목코드 정리
-    한국거래소 API 형식 -> PyKrx 형식
+    한국거래소 API 형식 -> OpenAPI 형식
     예: 'A000120' -> '000120'
     """
     # 'A' 접두사 제거
@@ -135,11 +136,19 @@ def fetch_stock_data(stock_code, start_date, end_date):
                 print(f"  - 종목코드 확인 실패: {str(e)}")
                 return None, 0
                 
-            # 주가 데이터 가져오기
-            df = stock.get_market_ohlcv(start_date, end_date, clean_code)
+            # 주가 데이터 가져오기 (adjusted=False로 설정)
+            df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code, adjusted=False)
             if df.empty:
                 print(f"  - 데이터가 비어있음")
                 return None, 0
+                
+            # 컬럼 확인
+            required_columns = ['시가', '고가', '저가', '종가', '거래량', '거래대금']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                print(f"  - 누락된 컬럼: {missing_columns}")
+                return None, 0
+                
             print(f"  - 주가 데이터 가져오기 성공!")
             print(f"  - 데이터 샘플:\n{df.head()}")
         except Exception as e:
@@ -167,41 +176,6 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 날짜를 인덱스에서 컬럼으로 변경
         df = df.reset_index()
         df = df.rename(columns={'날짜': 'time'})
-        
-        # 시가총액 데이터 가져오기
-        try:
-            print(f"  - 시가총액 데이터 가져오기 시도 중...")
-            market_cap = stock.get_market_cap(start_date, end_date, clean_code)
-            if not market_cap.empty:
-                df = df.merge(market_cap[['시가총액']], left_on='time', right_index=True, how='left')
-                df = df.rename(columns={'시가총액': 'market_cap'})
-                print(f"  - 시가총액 데이터 가져오기 성공!")
-            else:
-                print(f"  - 시가총액 데이터가 비어있음")
-                df['market_cap'] = None
-        except Exception as e:
-            print(f"  - 시가총액 데이터 가져오기 실패: {str(e)}")
-            df['market_cap'] = None
-        
-        # 외국인/기관 보유량 데이터 가져오기
-        try:
-            print(f"  - 외국인 보유량 데이터 가져오기 시도 중...")
-            foreign_holding = stock.get_exhaustion_rates_of_foreign_investment(clean_code, start_date, end_date)
-            if not foreign_holding.empty:
-                df = df.merge(foreign_holding[['외국인보유량', '외국인보유비율']], left_on='time', right_index=True, how='left')
-                df = df.rename(columns={
-                    '외국인보유량': 'foreign_holding',
-                    '외국인보유비율': 'foreign_holding_ratio'
-                })
-                print(f"  - 외국인 보유량 데이터 가져오기 성공!")
-            else:
-                print(f"  - 외국인 보유량 데이터가 비어있음")
-                df['foreign_holding'] = None
-                df['foreign_holding_ratio'] = None
-        except Exception as e:
-            print(f"  - 외국인 보유량 데이터 가져오기 실패: {str(e)}")
-            df['foreign_holding'] = None
-            df['foreign_holding_ratio'] = None
         
         return df, len(df)
         
