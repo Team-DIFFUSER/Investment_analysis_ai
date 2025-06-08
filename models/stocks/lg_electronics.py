@@ -21,8 +21,8 @@ gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
         logger.info(f"GPU 사용 가능: {gpus[0]}")
-        tf.keras.mixed_precision.set_global_policy('mixed_float16')
-        logger.info("Mixed Precision 활성화됨")
+        tf.keras.mixed_precision.set_global_policy('float32')
+        logger.info("Mixed Precision 비활성화됨")
     except RuntimeError as e:
         logger.error(f"GPU 설정 오류: {e}")
 else:
@@ -37,7 +37,7 @@ except Exception:
 
 # 환경 변수 및 최적화
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '0'  # Mixed Precision 비활성화
 
 tf.config.optimizer.set_jit(True)
 tf.config.optimizer.set_experimental_options({
@@ -54,7 +54,7 @@ tf.config.optimizer.set_experimental_options({
     "scoped_allocator_optimization": True,
     "pin_to_host_optimization": True,
     "implementation_selector": True,
-    "auto_mixed_precision": True
+    "auto_mixed_precision": False  # Mixed Precision 비활성화
 })
 
 logger.info(f"TensorFlow 버전: {tf.__version__}")
