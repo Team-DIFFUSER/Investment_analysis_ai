@@ -6,9 +6,6 @@ from datetime import datetime, timedelta
 import logging
 from typing import Dict, Any, Optional, Tuple, List
 
-# GPU 사용 비활성화
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
 
@@ -37,9 +34,6 @@ class LGElectronicsModel(BasePricePredictModel):
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
         self.num_models = 3  # 앙상블 모델 수
-        
-        # CPU 사용 설정
-        tf.config.set_visible_devices([], 'GPU')
 
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
