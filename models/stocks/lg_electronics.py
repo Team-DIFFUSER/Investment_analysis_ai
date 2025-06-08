@@ -131,7 +131,9 @@ class LGElectronicsModel(BasePricePredictModel):
             metrics = self.evaluate(X_test, y_test)
             
             # 모델 저장
-            self.save_model(f'models/stocks/{self.stock_code}')
+            save_dir = os.path.join('models', 'checkpoints')
+            os.makedirs(save_dir, exist_ok=True)
+            self.save_model(os.path.join(save_dir, f'{self.stock_name}_model.h5'))
             
             return metrics
             
@@ -170,21 +172,21 @@ class LGElectronicsModel(BasePricePredictModel):
         """저장된 앙상블 모델 로드"""
         try:
             for i in range(self.num_models):
-                model_path = f'models/checkpoints/lg_electronics_model_{i+1}.h5'
+                model_path = os.path.join('models', 'checkpoints', f'{self.stock_name}_model_{i+1}.h5')
                 if os.path.exists(model_path):
                     model = tf.keras.models.load_model(model_path, 
                         custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse})
                     self.models.append(model)
-                    logger.info(f"모델 {i+1} 로드 완료")
+                    self.logger.info(f"모델 {i+1} 로드 완료")
                 else:
-                    logger.error(f"모델 파일을 찾을 수 없습니다: {model_path}")
+                    self.logger.error(f"모델 파일을 찾을 수 없습니다: {model_path}")
                     raise FileNotFoundError(f"모델 파일을 찾을 수 없습니다: {model_path}")
             
             if not self.models:
                 raise ValueError("모든 모델 로드 실패")
                 
         except Exception as e:
-            logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+            self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
             raise
     
     def train(self, X_train, y_train, X_val, y_val):
@@ -199,6 +201,11 @@ class LGElectronicsModel(BasePricePredictModel):
                 self.logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
                 
                 model = self.build_model()
+                
+                # 체크포인트 저장 경로 설정
+                save_dir = os.path.join('models', 'checkpoints')
+                os.makedirs(save_dir, exist_ok=True)
+                checkpoint_path = os.path.join(save_dir, f'{self.stock_name}_model_{i+1}.h5')
                 
                 callbacks = [
                     tf.keras.callbacks.EarlyStopping(
@@ -215,7 +222,7 @@ class LGElectronicsModel(BasePricePredictModel):
                         min_delta=0.0001
                     ),
                     tf.keras.callbacks.ModelCheckpoint(
-                        f'models/checkpoints/lg_electronics_model_{i+1}.h5',
+                        checkpoint_path,
                         monitor='val_loss',
                         save_best_only=True
                     )
@@ -342,77 +349,81 @@ class LGElectronicsModel(BasePricePredictModel):
             logger.error(f"경제지표 데이터 로드 중 오류 발생: {str(e)}")
             raise
     
-    def build_model(self):
+    def build_model(self, input_shape=None):
         """LG전자 특화 모델 구조 정의"""
-        if self.n_features is None:
-            logger.warning("n_features가 설정되지 않았습니다. 기본값 30을 사용합니다.")
-            self.n_features = 30
+        try:
+            if input_shape is None:
+                input_shape = (self.sequence_length, self.n_features)
             
-        # 입력 레이어
-        inputs = tf.keras.layers.Input(shape=(self.sequence_length, self.n_features))
-        
-        # Multi-scale Convolutional Input (MCI)
-        conv_outputs = []
-        kernel_sizes = [2, 3, 5, 7, 11]  # 다양한 시간 스케일
-        for kernel_size in kernel_sizes:
-            conv = tf.keras.layers.Conv1D(128, kernel_size=kernel_size, padding='same', activation='relu')(inputs)
-            conv = tf.keras.layers.BatchNormalization()(conv)
-            conv_outputs.append(conv)
-        
-        # 컨볼루션 출력 결합
-        x = tf.keras.layers.Concatenate()(conv_outputs)
-        
-        # Attention 메커니즘
-        attention_output = tf.keras.layers.MultiHeadAttention(
-            num_heads=8,
-            key_dim=128
-        )(x, x)
-        
-        # Residual connection
-        x = tf.keras.layers.Add()([x, attention_output])
-        
-        # GRU 레이어
-        gru_output = tf.keras.layers.GRU(256, return_sequences=True)(x)
-        gru_output = tf.keras.layers.Dropout(0.3)(gru_output)
-        
-        # 추가 Attention 레이어
-        attention_output2 = tf.keras.layers.MultiHeadAttention(
-            num_heads=8,
-            key_dim=256
-        )(gru_output, gru_output)
-        
-        # Residual connection
-        x = tf.keras.layers.Add()([gru_output, attention_output2])
-        
-        # 시퀀스의 마지막 타임스텝만 선택
-        x = tf.keras.layers.Lambda(lambda x: x[:, -1, :])(x)
-        
-        # Dense 레이어
-        x = tf.keras.layers.Dense(256, activation='relu')(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Dropout(0.3)(x)
-        
-        x = tf.keras.layers.Dense(128, activation='relu')(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Dropout(0.3)(x)
-        
-        # 출력 레이어 (5% 제한을 위한 tanh 활성화 함수 사용)
-        outputs = tf.keras.layers.Dense(5, activation='tanh')(x) * 0.05  # tanh의 출력 범위를 -0.05에서 0.05로 조정
-        
-        # 모델 생성
-        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
-        
-        # 컴파일
-        optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)  # 더 안정적인 학습을 위해 학습률 감소
-        model.compile(
-            optimizer=optimizer,
-            loss=enhanced_weighted_time_mse,
-            metrics=['mae'],
-            jit_compile=True
-        )
-        
-        logger.info(f"모델 구조 생성 완료 - 입력: {self.sequence_length}x{self.n_features}, 출력: 5")
-        return model
+            # 입력 레이어
+            inputs = tf.keras.layers.Input(shape=input_shape)
+            
+            # Multi-scale Convolutional Input (MCI)
+            conv_outputs = []
+            kernel_sizes = [2, 3, 5, 7, 11]  # 다양한 시간 스케일
+            for kernel_size in kernel_sizes:
+                conv = tf.keras.layers.Conv1D(128, kernel_size=kernel_size, padding='same', activation='relu')(inputs)
+                conv = tf.keras.layers.BatchNormalization()(conv)
+                conv_outputs.append(conv)
+            
+            # 컨볼루션 출력 결합
+            x = tf.keras.layers.Concatenate()(conv_outputs)
+            
+            # Attention 메커니즘
+            attention_output = tf.keras.layers.MultiHeadAttention(
+                num_heads=8,
+                key_dim=128
+            )(x, x)
+            
+            # Residual connection
+            x = tf.keras.layers.Add()([x, attention_output])
+            
+            # GRU 레이어
+            gru_output = tf.keras.layers.GRU(256, return_sequences=True)(x)
+            gru_output = tf.keras.layers.Dropout(0.3)(gru_output)
+            
+            # 추가 Attention 레이어
+            attention_output2 = tf.keras.layers.MultiHeadAttention(
+                num_heads=8,
+                key_dim=256
+            )(gru_output, gru_output)
+            
+            # Residual connection
+            x = tf.keras.layers.Add()([gru_output, attention_output2])
+            
+            # 시퀀스의 마지막 타임스텝만 선택
+            x = tf.keras.layers.Lambda(lambda x: x[:, -1, :])(x)
+            
+            # Dense 레이어
+            x = tf.keras.layers.Dense(256, activation='relu')(x)
+            x = tf.keras.layers.BatchNormalization()(x)
+            x = tf.keras.layers.Dropout(0.3)(x)
+            
+            x = tf.keras.layers.Dense(128, activation='relu')(x)
+            x = tf.keras.layers.BatchNormalization()(x)
+            x = tf.keras.layers.Dropout(0.3)(x)
+            
+            # 출력 레이어 (5% 제한을 위한 tanh 활성화 함수 사용)
+            outputs = tf.keras.layers.Dense(1, activation='tanh')(x) * 0.05  # tanh의 출력 범위를 -0.05에서 0.05로 조정
+            
+            # 모델 생성
+            model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+            
+            # 컴파일
+            optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)  # 더 안정적인 학습을 위해 학습률 감소
+            model.compile(
+                optimizer=optimizer,
+                loss=enhanced_weighted_time_mse,
+                metrics=['mae'],
+                jit_compile=True
+            )
+            
+            logger.info(f"모델 구조 생성 완료 - 입력: {input_shape}, 출력: 1")
+            return model
+            
+        except Exception as e:
+            self.logger.error(f"모델 구축 중 오류 발생: {str(e)}")
+            raise
     
     def get_latest_price(self) -> float:
         """가장 최근 주가 조회"""
