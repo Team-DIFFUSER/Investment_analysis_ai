@@ -68,10 +68,9 @@ def create_stock_prices_table():
 
 def get_date_range():
     """2025년 3월 21일까지의 데이터를 가져오도록 설정"""
-    # end_date = datetime(2025, 3, 25)  # 2025년 3월 21일로 고정
-    end_date = datetime(2025, 3, 26)  # 2025년 3월 21일로 고정
+    end_date = datetime(2025, 3, 26)
     start_date = end_date - timedelta(days=500)
-    #start_date = datetime(2023, 3, 25)  # 500일 전부터
+    # YYYYMMDD 형식으로 변환
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
@@ -133,6 +132,8 @@ def fetch_stock_data(stock_code, start_date, end_date):
         except Exception as e:
             print(f"  - 주가 데이터 가져오기 실패: {str(e)}")
             print(f"  - 상세 정보: {type(e).__name__}")
+            if hasattr(e, 'response'):
+                print(f"  - API 응답: {e.response.text if hasattr(e.response, 'text') else 'No response text'}")
             return None, 0
             
         # 컬럼명 변경
