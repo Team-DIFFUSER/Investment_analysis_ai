@@ -40,6 +40,10 @@ def setup_gpu():
 
 def enhanced_weighted_time_mse(y_true, y_pred):
     """시간에 따른 가중치가 적용된 MSE 손실 함수"""
+    # 입력을 float32로 변환
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+    
     # 시간에 따른 가중치 계산 (최근 데이터에 더 높은 가중치)
     time_weights = tf.exp(tf.linspace(0., 1., tf.shape(y_true)[1]))
     time_weights = time_weights / tf.reduce_sum(time_weights)
