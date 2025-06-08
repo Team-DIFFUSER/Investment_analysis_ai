@@ -413,7 +413,9 @@ class LGElectronicsModel(BaseStockModel):
             inputs = layers.Input(shape=input_shape)
             
             # 첫 번째 LSTM 레이어
-            x = layers.LSTM(256, input_shape=input_shape, return_sequences=True)(inputs)
+            x = layers.LSTM(256, input_shape=input_shape, return_sequences=True,
+                          kernel_initializer='glorot_uniform',
+                          recurrent_initializer='orthogonal')(inputs)
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.3)(x)
             
@@ -425,21 +427,27 @@ class LGElectronicsModel(BaseStockModel):
             x = layers.LayerNormalization()(x)
             
             # 두 번째 LSTM 레이어
-            x = layers.LSTM(128, return_sequences=True)(x)
+            x = layers.LSTM(128, return_sequences=True,
+                          kernel_initializer='glorot_uniform',
+                          recurrent_initializer='orthogonal')(x)
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.3)(x)
             
             # 세 번째 LSTM 레이어
-            x = layers.LSTM(64, return_sequences=False)(x)
+            x = layers.LSTM(64, return_sequences=False,
+                          kernel_initializer='glorot_uniform',
+                          recurrent_initializer='orthogonal')(x)
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.3)(x)
             
             # Dense 레이어
-            x = layers.Dense(128, activation='relu')(x)
+            x = layers.Dense(128, activation='relu',
+                           kernel_initializer='he_normal')(x)
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.3)(x)
             
-            x = layers.Dense(64, activation='relu')(x)
+            x = layers.Dense(64, activation='relu',
+                           kernel_initializer='he_normal')(x)
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.3)(x)
             
@@ -451,10 +459,11 @@ class LGElectronicsModel(BaseStockModel):
             
             # 옵티마이저 설정
             optimizer = tf.keras.optimizers.Adam(
-                learning_rate=self.learning_rate,
+                learning_rate=0.0001,  # 학습률 감소
                 beta_1=0.9,
                 beta_2=0.999,
-                epsilon=1e-07
+                epsilon=1e-07,
+                clipnorm=1.0  # 그래디언트 클리핑 추가
             )
             
             # 모델 컴파일
@@ -665,14 +674,24 @@ class LGElectronicsModel(BaseStockModel):
             feature_data = data[features].copy()
             self.logger.info(f"스케일링 전 데이터 형태: {feature_data.shape}")
             
-            # 결측치 확인
+            # 결측치 확인 및 처리
             if feature_data.isnull().any().any():
                 self.logger.warning("스케일링 전 결측치가 있습니다. 전방향 채우기를 수행합니다.")
                 feature_data = feature_data.fillna(method='ffill')
                 feature_data = feature_data.fillna(method='bfill')
             
-            # 스케일링
-            scaled_data = self.scaler.fit_transform(feature_data)
+            # 무한대 값 처리
+            feature_data = feature_data.replace([np.inf, -np.inf], np.nan)
+            feature_data = feature_data.fillna(method='ffill')
+            feature_data = feature_data.fillna(method='bfill')
+            
+            # 각 특성별 스케일링
+            scaled_data = np.zeros_like(feature_data.values)
+            for i in range(feature_data.shape[1]):
+                col_data = feature_data.iloc[:, i].values.reshape(-1, 1)
+                if not np.all(np.isnan(col_data)):
+                    scaled_data[:, i] = self.scaler.fit_transform(col_data).ravel()
+            
             self.logger.info(f"스케일링 후 데이터 형태: {scaled_data.shape}")
 
             # 시퀀스 데이터 생성
