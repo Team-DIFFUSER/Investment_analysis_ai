@@ -522,6 +522,9 @@ class LGElectronicsModel(BasePricePredictModel):
     def predict_next_five_days(self, start_date: datetime) -> List[Dict]:
         """다음 5일 주가 예측"""
         try:
+            # TensorFlow 설정
+            tf.config.run_functions_eagerly(True)
+            
             # 모델이 없으면 학습 수행
             if not hasattr(self, 'model') or self.model is None:
                 logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
@@ -544,38 +547,52 @@ class LGElectronicsModel(BasePricePredictModel):
             predictions = []
             current_data = X[-1:].copy()  # 데이터 복사
             
+            # 입력 데이터 형태 확인 및 조정
+            if len(current_data.shape) != 3:
+                current_data = np.expand_dims(current_data, axis=0)
+            
             # 각 영업일에 대해 예측 수행
             for target_date in business_days:
-                # 예측 수행 (배치 크기 명시)
-                pred = self.model.predict(current_data, batch_size=1, verbose=0)
-                predicted_price = pred[0][0]
-                
-                # 예측값 역변환
-                predicted_price = self.scaler.inverse_transform(
-                    np.concatenate([np.zeros((1, 3)), np.array([[predicted_price]]), np.zeros((1, 16))], axis=1)
-                )[0, 3]
-                
-                # 이전 예측값 조회
-                prev_predictions = self.get_previous_predictions(start_date, target_date)
-                
-                # 예측값 조정
-                if not prev_predictions.empty:
-                    actual_price = self.get_latest_price()
-                    prev_predicted_price = prev_predictions.iloc[-1]['predicted_price']
-                    adjustment = self.calculate_prediction_adjustment(
-                        actual_price, prev_predicted_price, predicted_price
-                    )
-                    predicted_price += adjustment
-                
-                predictions.append({
-                    'date': target_date,
-                    'predicted_price': predicted_price,
-                    'confidence': 0.8  # 기본 신뢰도
-                })
-                
-                # 다음 예측을 위한 데이터 업데이트
-                current_data = np.roll(current_data, -1, axis=1)
-                current_data[0, -1] = predicted_price
+                try:
+                    # 예측 수행 (배치 크기 명시)
+                    pred = self.model.predict(current_data, batch_size=1, verbose=0)
+                    
+                    if pred is None or len(pred) == 0:
+                        logger.error("예측 결과가 비어있습니다.")
+                        raise ValueError("Empty prediction result")
+                    
+                    predicted_price = pred[0][0]
+                    
+                    # 예측값 역변환
+                    predicted_price = self.scaler.inverse_transform(
+                        np.concatenate([np.zeros((1, 3)), np.array([[predicted_price]]), np.zeros((1, 16))], axis=1)
+                    )[0, 3]
+                    
+                    # 이전 예측값 조회
+                    prev_predictions = self.get_previous_predictions(start_date, target_date)
+                    
+                    # 예측값 조정
+                    if not prev_predictions.empty:
+                        actual_price = self.get_latest_price()
+                        prev_predicted_price = prev_predictions.iloc[-1]['predicted_price']
+                        adjustment = self.calculate_prediction_adjustment(
+                            actual_price, prev_predicted_price, predicted_price
+                        )
+                        predicted_price += adjustment
+                    
+                    predictions.append({
+                        'date': target_date,
+                        'predicted_price': predicted_price,
+                        'confidence': 0.8  # 기본 신뢰도
+                    })
+                    
+                    # 다음 예측을 위한 데이터 업데이트
+                    current_data = np.roll(current_data, -1, axis=1)
+                    current_data[0, -1] = predicted_price
+                    
+                except Exception as e:
+                    logger.error(f"개별 예측 중 오류 발생: {str(e)}")
+                    raise
             
             return predictions
             
