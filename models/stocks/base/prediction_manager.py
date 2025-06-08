@@ -49,26 +49,24 @@ class PredictionManager:
         except Exception as e:
             self.logger.error(f"모델 추가 중 오류 발생: {str(e)}")
             
-    def run_daily_predictions(self):
-        """모든 종목에 대한 일일 예측 실행"""
+    def run_daily_prediction(self):
+        """일일 예측 실행"""
         try:
-            today = datetime.now().strftime('%Y-%m-%d')
-            
             for stock_name, model in self.models.items():
                 self.logger.info(f"{stock_name} 예측 시작")
                 
-                # 이전 예측값 업데이트
-                self._update_previous_predictions(stock_name)
+                # 예측 실행
+                predictions = model.predict_next_five_days()
+                if not predictions:
+                    self.logger.error(f"{stock_name} 예측 실패")
+                    continue
                 
-                # 새로운 예측 수행
-                predictions = model.predict_next_days()
-                if predictions:
-                    self.predictions_data['stock_predictions'][stock_name][today] = predictions
-                    self.logger.info(f"{stock_name} 예측 완료: {predictions}")
-                    
-            # 예측 데이터 저장
-            self._save_predictions_data()
-            
+                # 예측 결과 저장
+                self.predictions_data['stock_predictions'][stock_name] = predictions
+                
+                # 예측 결과 로깅
+                self.logger.info(f"{stock_name} 예측 결과: {predictions}")
+                
         except Exception as e:
             self.logger.error(f"일일 예측 실행 중 오류 발생: {str(e)}")
             
