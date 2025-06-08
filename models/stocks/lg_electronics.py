@@ -22,10 +22,10 @@ if gpus:
         # GPU 메모리 증가 허용
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-        # GPU 메모리 제한 설정 (전체 메모리의 90% 사용)
+        # GPU 메모리 제한 설정 (전체 메모리의 70% 사용)
         tf.config.experimental.set_virtual_device_configuration(
             gpus[0],
-            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=20730)]  # 23034MB의 90%
+            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=16124)]  # 23034MB의 70%
         )
         logger.info("GPU 메모리 설정 완료")
     except RuntimeError as e:
@@ -56,7 +56,7 @@ class LGElectronicsModel(BasePricePredictModel):
             stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
-            batch_size=128  # 배치 크기 증가
+            batch_size=64  # 배치 크기 감소
         )
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
@@ -213,13 +213,13 @@ class LGElectronicsModel(BasePricePredictModel):
                 
                 callbacks = [
                     tf.keras.callbacks.EarlyStopping(
-                        monitor='loss',  # val_loss 대신 loss 사용
+                        monitor='loss',
                         patience=50,
                         restore_best_weights=True,
                         min_delta=0.0001
                     ),
                     tf.keras.callbacks.ReduceLROnPlateau(
-                        monitor='loss',  # val_loss 대신 loss 사용
+                        monitor='loss',
                         factor=0.2,
                         patience=15,
                         min_lr=1e-6,
@@ -227,7 +227,7 @@ class LGElectronicsModel(BasePricePredictModel):
                     ),
                     tf.keras.callbacks.ModelCheckpoint(
                         checkpoint_path,
-                        monitor='loss',  # val_loss 대신 loss 사용
+                        monitor='loss',
                         save_best_only=True
                     )
                 ]
@@ -235,9 +235,9 @@ class LGElectronicsModel(BasePricePredictModel):
                 # 데이터셋 최적화 - 메모리 효율적인 방식으로 변경
                 train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
                 train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=min(100000, len(X_train)))
+                train_dataset = train_dataset.shuffle(buffer_size=min(10000, len(X_train)))
                 train_dataset = train_dataset.batch(self.batch_size)
-                train_dataset = train_dataset.repeat()  # 데이터셋 반복
+                train_dataset = train_dataset.repeat()
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
                 # 검증 데이터셋이 있는 경우에만 설정
@@ -266,11 +266,16 @@ class LGElectronicsModel(BasePricePredictModel):
                     verbose=1
                 )
                 
-                # 메모리 정리
-                tf.keras.backend.clear_session()
+                # 학습된 모델 저장
+                model.save(checkpoint_path)
+                self.logger.info(f"모델 {i+1} 저장 완료: {checkpoint_path}")
                 
+                # 학습 이력 저장
                 histories.append(history.history)
                 self.models.append(model)
+                
+                # 메모리 정리
+                tf.keras.backend.clear_session()
                 
             return histories
             
