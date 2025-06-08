@@ -84,6 +84,8 @@ class LGElectronicsModel(BaseStockModel):
         # GPU 사용 가능 여부 확인
         self.device = tf.config.list_physical_devices('GPU')[0] if tf.config.list_physical_devices('GPU') else 'CPU'
         self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
+        self.model = None
+        self._initialized = False
 
     def __del__(self):
         """소멸자: 데이터베이스 연결 종료"""
@@ -708,6 +710,10 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
             raise
 
+    def is_initialized(self) -> bool:
+        """모델 초기화 상태 확인"""
+        return self._initialized and self.model is not None
+        
     def initialize(self):
         """모델 초기화"""
         try:
