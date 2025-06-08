@@ -589,76 +589,79 @@ class LGElectronicsModel(BaseStockModel):
             raise
 
     def prepare_data(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """학습 데이터 준비"""
+        """데이터 전처리"""
         try:
-            # 특성 선택
-            features = ['Open', 'High', 'Low', 'Close', 'Volume']
+            if data.empty:
+                self.logger.error("입력 데이터가 비어있습니다.")
+                return None, None
+                
+            # 필요한 컬럼 확인
+            required_columns = ['open_price', 'high_price', 'low_price', 'close_price', 'volume']
+            missing_columns = [col for col in required_columns if col not in data.columns]
+            if missing_columns:
+                self.logger.error(f"필요한 컬럼이 없습니다: {missing_columns}")
+                return None, None
+                
+            # NaN 값 처리
+            data = data.fillna(method='ffill').fillna(method='bfill')
             
             # 기술적 지표 계산
-            df = data.copy()
+            data['price_change'] = data['close_price'].pct_change()
+            data['volume_change'] = data['volume'].pct_change()
             
-            # 가격 변화율
-            df['price_change'] = df['Close'].pct_change()
-            df['price_change_5d'] = df['Close'].pct_change(periods=5)
-            df['price_change_20d'] = df['Close'].pct_change(periods=20)
-            
-            # 거래량 변화율
-            df['volume_change'] = df['Volume'].pct_change()
-            df['volume_change_5d'] = df['Volume'].pct_change(periods=5)
-            
-            # 이동평균선
-            df['sma_5'] = df['Close'].rolling(window=5).mean()
-            df['sma_20'] = df['Close'].rolling(window=20).mean()
-            df['sma_60'] = df['Close'].rolling(window=60).mean()
+            # 이동평균
+            data['ma5'] = data['close_price'].rolling(window=5).mean()
+            data['ma20'] = data['close_price'].rolling(window=20).mean()
             
             # RSI
-            delta = df['Close'].diff()
+            delta = data['close_price'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             rs = gain / loss
-            df['rsi'] = 100 - (100 / (1 + rs))
+            data['rsi'] = 100 - (100 / (1 + rs))
             
             # MACD
-            exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-            exp2 = df['Close'].ewm(span=26, adjust=False).mean()
-            df['macd'] = exp1 - exp2
-            df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-            df['macd_diff'] = df['macd'] - df['macd_signal']
+            exp1 = data['close_price'].ewm(span=12, adjust=False).mean()
+            exp2 = data['close_price'].ewm(span=26, adjust=False).mean()
+            data['macd'] = exp1 - exp2
+            data['signal'] = data['macd'].ewm(span=9, adjust=False).mean()
             
             # Bollinger Bands
-            df['bb_mid'] = df['Close'].rolling(window=20).mean()
-            bb_std = df['Close'].rolling(window=20).std()
-            df['bb_high'] = df['bb_mid'] + (bb_std * 2)
-            df['bb_low'] = df['bb_mid'] - (bb_std * 2)
+            data['bb_middle'] = data['close_price'].rolling(window=20).mean()
+            data['bb_upper'] = data['bb_middle'] + 2 * data['close_price'].rolling(window=20).std()
+            data['bb_lower'] = data['bb_middle'] - 2 * data['close_price'].rolling(window=20).std()
             
-            # Rate of Change
-            df['roc'] = df['Close'].pct_change(periods=10) * 100
+            # NaN 값 제거
+            data = data.dropna()
             
-            # 결측치 처리
-            df = df.fillna(method='ffill').fillna(method='bfill')
+            # 특성 선택
+            features = [
+                'open_price', 'high_price', 'low_price', 'close_price', 'volume',
+                'price_change', 'volume_change',
+                'ma5', 'ma20', 'rsi',
+                'macd', 'signal',
+                'bb_middle', 'bb_upper', 'bb_lower'
+            ]
             
-            # 모든 특성 추가
-            features.extend([
-                'price_change', 'price_change_5d', 'price_change_20d',
-                'volume_change', 'volume_change_5d',
-                'sma_5', 'sma_20', 'sma_60',
-                'rsi', 'macd', 'macd_signal', 'macd_diff',
-                'bb_high', 'bb_low', 'bb_mid', 'roc'
-            ])
+            # 데이터 정규화
+            scaler = MinMaxScaler()
+            scaled_data = scaler.fit_transform(data[features])
             
-            # 데이터 스케일링
-            scaled_data = self.scaler.fit_transform(df[features])
-            
+            # 시퀀스 데이터 생성
             X, y = [], []
             for i in range(len(scaled_data) - self.sequence_length):
                 X.append(scaled_data[i:(i + self.sequence_length)])
-                y.append(scaled_data[i + self.sequence_length, 3])  # Close 가격
+                y.append(scaled_data[i + self.sequence_length, 3])  # close_price 예측
                 
-            return np.array(X), np.array(y)
+            X = np.array(X)
+            y = np.array(y)
+            
+            self.logger.info(f"데이터 준비 완료 - X shape: {X.shape}, y shape: {y.shape}")
+            return X, y
             
         except Exception as e:
             self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
-            raise
+            return None, None
 
     def train(self):
         """모델 학습"""

@@ -283,9 +283,9 @@ class DatabaseManager:
                 return pd.DataFrame()
             
             # DataFrame 생성 및 컬럼명 매핑
-            df = pd.DataFrame(result, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            df['Date'] = pd.to_datetime(df['Date'])
-            df.set_index('Date', inplace=True)
+            df = pd.DataFrame(result, columns=['time', 'open_price', 'high_price', 'low_price', 'close_price', 'volume'])
+            df['time'] = pd.to_datetime(df['time'])
+            df.set_index('time', inplace=True)
             
             logger.info(f"데이터 로드 완료: {len(df)} 행")
             return df
