@@ -636,79 +636,65 @@ class LGElectronicsModel(BaseStockModel):
             raise
 
     def prepare_data(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """데이터 전처리"""
+        """학습 데이터 준비"""
         try:
             if data.empty:
                 self.logger.error("입력 데이터가 비어있습니다.")
-                return None, None
-                
-            # 필요한 컬럼 확인
-            required_columns = ['open_price', 'high_price', 'low_price', 'close_price', 'volume']
-            missing_columns = [col for col in required_columns if col not in data.columns]
-            if missing_columns:
-                self.logger.error(f"필요한 컬럼이 없습니다: {missing_columns}")
-                return None, None
-                
-            # NaN 값 처리
-            data = data.fillna(method='ffill').fillna(method='bfill')
-            
-            # 기술적 지표 계산
-            data['price_change'] = data['close_price'].pct_change()
-            data['volume_change'] = data['volume'].pct_change()
-            
-            # 이동평균
-            data['ma5'] = data['close_price'].rolling(window=5).mean()
-            data['ma20'] = data['close_price'].rolling(window=20).mean()
-            
-            # RSI
-            delta = data['close_price'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            data['rsi'] = 100 - (100 / (1 + rs))
-            
-            # MACD
-            exp1 = data['close_price'].ewm(span=12, adjust=False).mean()
-            exp2 = data['close_price'].ewm(span=26, adjust=False).mean()
-            data['macd'] = exp1 - exp2
-            data['signal'] = data['macd'].ewm(span=9, adjust=False).mean()
-            
-            # Bollinger Bands
-            data['bb_middle'] = data['close_price'].rolling(window=20).mean()
-            data['bb_upper'] = data['bb_middle'] + 2 * data['close_price'].rolling(window=20).std()
-            data['bb_lower'] = data['bb_middle'] - 2 * data['close_price'].rolling(window=20).std()
-            
-            # NaN 값 제거
-            data = data.dropna()
-            
-            # 특성 선택
+                return np.array([]), np.array([])
+
+            # 필요한 특성 목록
             features = [
                 'open_price', 'high_price', 'low_price', 'close_price', 'volume',
-                'price_change', 'volume_change',
-                'ma5', 'ma20', 'rsi',
-                'macd', 'signal',
-                'bb_middle', 'bb_upper', 'bb_lower'
+                'MA5', 'MA20', 'MA60', 'MA120',
+                'BB_middle', 'BB_std', 'BB_upper', 'BB_lower',
+                'RSI', 'MACD', 'Signal_Line', 'MACD_Histogram',
+                'Stoch_K', 'Stoch_D', 'ATR',
+                'Volume_MA5', 'Volume_MA20', 'Volume_Ratio',
+                'Price_Change', 'Price_Change_MA5', 'Price_Change_MA20',
+                'Volatility', 'Volatility_MA5',
+                'ROC', 'Momentum', 'ADX'
             ]
+
+            # 누락된 특성 확인
+            missing_features = [f for f in features if f not in data.columns]
+            if missing_features:
+                self.logger.error(f"누락된 특성들: {missing_features}")
+                return np.array([]), np.array([])
+
+            # 데이터 스케일링
+            feature_data = data[features].copy()
+            self.logger.info(f"스케일링 전 데이터 형태: {feature_data.shape}")
             
-            # 데이터 정규화
-            scaler = MinMaxScaler()
-            scaled_data = scaler.fit_transform(data[features])
+            # 결측치 확인
+            if feature_data.isnull().any().any():
+                self.logger.warning("스케일링 전 결측치가 있습니다. 전방향 채우기를 수행합니다.")
+                feature_data = feature_data.fillna(method='ffill')
+                feature_data = feature_data.fillna(method='bfill')
             
+            # 스케일링
+            scaled_data = self.scaler.fit_transform(feature_data)
+            self.logger.info(f"스케일링 후 데이터 형태: {scaled_data.shape}")
+
             # 시퀀스 데이터 생성
             X, y = [], []
             for i in range(len(scaled_data) - self.sequence_length):
                 X.append(scaled_data[i:(i + self.sequence_length)])
-                y.append(scaled_data[i + self.sequence_length, 3])  # close_price 예측
-                
+                y.append(scaled_data[i + self.sequence_length, 3])  # close_price의 인덱스
+
             X = np.array(X)
             y = np.array(y)
             
-            self.logger.info(f"데이터 준비 완료 - X shape: {X.shape}, y shape: {y.shape}")
+            self.logger.info(f"최종 데이터 형태: X={X.shape}, y={y.shape}")
+            
+            if len(X) == 0 or len(y) == 0:
+                self.logger.error("생성된 시퀀스 데이터가 없습니다.")
+                return np.array([]), np.array([])
+
             return X, y
             
         except Exception as e:
             self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
-            return None, None
+            return np.array([]), np.array([])
 
     def train(self, X: np.ndarray, y: np.ndarray) -> None:
         """모델 학습"""
