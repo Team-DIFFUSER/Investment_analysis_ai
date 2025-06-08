@@ -90,55 +90,79 @@ class LGElectronicsModel(BasePricePredictModel):
         try:
             # 데이터베이스에서 주가 데이터 가져오기
             query = """
-                SELECT time as date, open_price as open, high_price as high, 
-                       low_price as low, close_price as close, volume
+                SELECT time, open_price, high_price, low_price, close_price, volume,
+                       market_cap, foreign_holding, foreign_holding_ratio
                 FROM stock_prices
                 WHERE stock_code = 'A066570'
                 ORDER BY time
             """
             result = self.db_manager.execute_query(query)
-            df = pd.DataFrame(result)
             
-            if df.empty:
+            if not result:
                 raise ValueError("데이터가 비어있습니다.")
-                
-            # 날짜를 인덱스로 설정
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
             
+            # DataFrame 생성 및 컬럼명 설정
+            df = pd.DataFrame(result, columns=[
+                'time', 'open_price', 'high_price', 'low_price', 'close_price', 'volume',
+                'market_cap', 'foreign_holding', 'foreign_holding_ratio'
+            ])
+            
+            # 날짜를 인덱스로 설정
+            df['time'] = pd.to_datetime(df['time'])
+            df.set_index('time', inplace=True)
+            
+            # 컬럼명 변경
+            df = df.rename(columns={
+                'open_price': 'open',
+                'high_price': 'high',
+                'low_price': 'low',
+                'close_price': 'close'
+            })
+            
+            self.logger.info(f"데이터 로드 완료: {len(df)} 행")
             return df
             
         except Exception as e:
-            logging.error(f"데이터 로드 중 오류 발생: {str(e)}")
+            self.logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
         finally:
             self.db_manager.close()
 
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Any]:
         """학습 데이터 준비"""
-        # 데이터 로드
-        data = self.load_data()
-        
-        # 데이터 전처리
-        processed_data = self.enhanced_preprocessing(data)
-        
-        # 학습 데이터 준비
-        X, y = self.prepare_data(processed_data)
-        
-        # 학습/검증/테스트 데이터 분할 (80/10/10)
-        train_size = int(len(X) * 0.8)
-        val_size = int(len(X) * 0.1)
-        
-        X_train = X[:train_size]
-        y_train = y[:train_size]
-        
-        X_val = X[train_size:train_size + val_size]
-        y_val = y[train_size:train_size + val_size]
-        
-        X_test = X[train_size + val_size:]
-        y_test = y[train_size + val_size:]
-        
-        return X_train, y_train, X_val, y_val, X_test, y_test, self.scaler
+        try:
+            # 데이터 로드
+            data = self.load_data()
+            
+            if data.empty:
+                raise ValueError("데이터가 비어있습니다.")
+            
+            # 데이터 전처리
+            processed_data = self.enhanced_preprocessing(data)
+            
+            # 학습 데이터 준비
+            X, y = self.prepare_data(processed_data)
+            
+            # 학습/검증/테스트 데이터 분할 (80/10/10)
+            train_size = int(len(X) * 0.8)
+            val_size = int(len(X) * 0.1)
+            
+            X_train = X[:train_size]
+            y_train = y[:train_size]
+            
+            X_val = X[train_size:train_size + val_size]
+            y_val = y[train_size:train_size + val_size]
+            
+            X_test = X[train_size + val_size:]
+            y_test = y[train_size + val_size:]
+            
+            self.logger.info(f"학습 데이터 준비 완료: train={len(X_train)}, val={len(X_val)}, test={len(X_test)}")
+            
+            return X_train, y_train, X_val, y_val, X_test, y_test, self.scaler
+            
+        except Exception as e:
+            self.logger.error(f"학습 데이터 준비 중 오류 발생: {str(e)}")
+            raise
 
     def train_model(self) -> Dict[str, List[float]]:
         """모델 학습 및 평가"""
@@ -223,6 +247,9 @@ class LGElectronicsModel(BasePricePredictModel):
             data = self.load_data()
             recent_data = data.tail(self.sequence_length)
             
+            if len(recent_data) < self.sequence_length:
+                raise ValueError(f"충분한 데이터가 없습니다. 필요: {self.sequence_length}, 현재: {len(recent_data)}")
+            
             # 데이터 전처리
             processed_data = self.enhanced_preprocessing(recent_data)
             
@@ -237,10 +264,19 @@ class LGElectronicsModel(BasePricePredictModel):
                 np.concatenate([np.zeros((1, 3)), prediction.reshape(-1, 1), np.zeros((1, 16))], axis=1)
             )[0, 3]
             
+            # 예측 결과 저장
+            self.db_manager.save_prediction(
+                stock_code=self.stock_code,
+                stock_name=self.stock_name,
+                prediction_date=datetime.now(),
+                target_date=datetime.now() + timedelta(days=1),
+                predicted_price=float(prediction)
+            )
+            
             return prediction
             
         except Exception as e:
-            self.logger.error(f"예측 중 오류 발생: {e}")
+            self.logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
 
     def load_models(self):
@@ -623,6 +659,34 @@ class LGElectronicsModel(BasePricePredictModel):
         except Exception as e:
             logger.error(f"예측값 조정 계산 중 오류 발생: {str(e)}")
             return 0.0  # 오류 발생 시 조정하지 않음
+
+    def save_training_results(self, history: Dict[str, List[float]]) -> None:
+        """학습 결과 저장"""
+        try:
+            if not history:
+                self.logger.warning("저장할 학습 결과가 없습니다.")
+                return
+
+            # 학습 결과를 데이터베이스에 저장
+            query = """
+                INSERT INTO model_training_history (
+                    stock_name, training_date, loss, val_loss, mae, val_mae
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            params = (
+                self.stock_name,
+                datetime.now(),
+                float(history['loss'][-1]) if history.get('loss') else None,
+                float(history['val_loss'][-1]) if history.get('val_loss') else None,
+                float(history['mae'][-1]) if history.get('mae') else None,
+                float(history['val_mae'][-1]) if history.get('val_mae') else None
+            )
+            self.db_manager.execute_query(query, params, fetch=False)
+            self.logger.info(f"{self.stock_name} 학습 결과 저장 완료")
+            
+        except Exception as e:
+            self.logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
+            raise
 
 if __name__ == "__main__":
     model = LGElectronicsModel()

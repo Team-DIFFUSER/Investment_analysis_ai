@@ -42,6 +42,7 @@ class DatabaseManager:
         try:
             self.conn = psycopg2.connect(
                 host=os.getenv('DB_HOST', 'localhost'),
+                port=os.getenv('DB_PORT', '5432'),
                 database=os.getenv('DB_NAME', 'stock_db'),
                 user=os.getenv('DB_USER', 'postgres'),
                 password=os.getenv('DB_PASSWORD', 'postgres')
@@ -56,6 +57,23 @@ class DatabaseManager:
     def create_tables(self):
         """필요한 테이블 생성"""
         try:
+            # stock_prices 테이블 생성
+            self.cur.execute("""
+                CREATE TABLE IF NOT EXISTS stock_prices (
+                    time TIMESTAMPTZ NOT NULL,
+                    stock_code VARCHAR(10) NOT NULL,
+                    stock_name VARCHAR(50) NOT NULL,
+                    open_price DECIMAL(10,2),
+                    high_price DECIMAL(10,2),
+                    low_price DECIMAL(10,2),
+                    close_price DECIMAL(10,2),
+                    volume BIGINT,
+                    market_cap DECIMAL(20,2),
+                    foreign_holding BIGINT,
+                    foreign_holding_ratio DECIMAL(5,2)
+                )
+            """)
+            
             # model_training_history 테이블 생성
             self.cur.execute("""
                 CREATE TABLE IF NOT EXISTS model_training_history (
@@ -69,17 +87,32 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # predicted_stock_prices 테이블 생성
+            self.cur.execute("""
+                CREATE TABLE IF NOT EXISTS predicted_stock_prices (
+                    id SERIAL PRIMARY KEY,
+                    stock_code VARCHAR(10) NOT NULL,
+                    stock_name VARCHAR(50) NOT NULL,
+                    prediction_date TIMESTAMPTZ NOT NULL,
+                    target_date TIMESTAMPTZ NOT NULL,
+                    predicted_price DECIMAL(10,2) NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             self.conn.commit()
             logger.info("테이블 생성 완료")
         except Exception as e:
+            self.conn.rollback()
             logger.error(f"테이블 생성 중 오류 발생: {str(e)}")
             raise
 
-    def execute_query(self, query: str, params: tuple = None) -> List[tuple]:
+    def execute_query(self, query: str, params: tuple = None, fetch: bool = True) -> List[tuple]:
         """쿼리 실행"""
         try:
             self.cur.execute(query, params)
-            if query.strip().upper().startswith('SELECT'):
+            if fetch:
                 return self.cur.fetchall()
             self.conn.commit()
             return []
@@ -88,11 +121,24 @@ class DatabaseManager:
             logger.error(f"쿼리 실행 중 오류 발생: {str(e)}")
             raise
 
+    def execute_values_query(self, query: str, data: List[tuple]) -> None:
+        """여러 행의 데이터를 한 번에 삽입"""
+        try:
+            execute_values(self.cur, query, data)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"데이터 삽입 중 오류 발생: {str(e)}")
+            raise
+
     def execute_transaction(self, queries: List[Tuple[str, tuple]]) -> None:
         """트랜잭션 실행"""
         try:
             for query, params in queries:
-                self.cur.execute(query, params)
+                if params is None:
+                    self.cur.execute(query)
+                else:
+                    self.cur.execute(query, params)
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()
@@ -109,7 +155,7 @@ class DatabaseManager:
                 VALUES (%s, %s, %s, %s, %s)
             """
             params = (stock_code, stock_name, prediction_date, target_date, predicted_price)
-            self.execute_query(query, params)
+            self.execute_query(query, params, fetch=False)
         except Exception as e:
             logger.error(f"예측 결과 저장 중 오류 발생: {str(e)}")
             raise
@@ -189,15 +235,6 @@ class DatabaseManager:
         if not self.Session:
             self._connect()
         return self.Session()
-
-    def execute_values_query(self, query: str, data: List[tuple]) -> None:
-        """여러 행의 데이터를 한 번에 삽입"""
-        try:
-            with self.get_db_cursor() as cursor:
-                execute_values(cursor, query, data)
-        except Exception as e:
-            logger.error(f"데이터 삽입 중 오류 발생: {str(e)}")
-            raise
 
     def get_stock_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """주가 데이터 조회"""
