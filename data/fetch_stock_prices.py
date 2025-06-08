@@ -7,13 +7,17 @@ import json
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
-from database.database import execute_query, execute_values_query, execute_transaction
+
+# 현재 파일의 절대 경로
+current_file = Path(__file__).resolve()
+# 프로젝트 루트 디렉토리의 절대 경로
+project_root = current_file.parent.parent
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
-project_root = str(Path(__file__).parent.parent)
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
+from database.database import execute_query, execute_values_query, execute_transaction
 from pykrx import stock
 
 def create_stock_prices_table():
