@@ -172,9 +172,9 @@ class LGElectronicsModel(BasePricePredictModel):
             X_train, y_train, X_val, y_val, X_test, y_test, _ = self.prepare_training_data()
             
             # 데이터 shape 확인 및 조정
-            y_train = y_train.reshape(-1)
-            y_val = y_val.reshape(-1)
-            y_test = y_test.reshape(-1)
+            y_train = y_train.reshape(-1, 1)
+            y_val = y_val.reshape(-1, 1)
+            y_test = y_test.reshape(-1, 1)
             
             # 모델 구축
             self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
@@ -559,47 +559,26 @@ class LGElectronicsModel(BasePricePredictModel):
     def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, float]:
         """모델 평가"""
         try:
-            if not hasattr(self, 'model') or self.model is None:
-                raise ValueError("모델이 초기화되지 않았습니다.")
-            
             # 예측 수행
             y_pred = self.model.predict(X_test)
             
-            # 예측값과 실제값의 shape 확인 및 조정
-            if y_pred.shape != y_test.shape:
-                self.logger.warning(f"Shape 불일치: y_pred {y_pred.shape}, y_test {y_test.shape}")
-                # 1차원으로 변환
-                y_pred = y_pred.reshape(-1)
-                y_test = y_test.reshape(-1)
+            # Shape 조정
+            y_pred = y_pred.reshape(-1)
+            y_test = y_test.reshape(-1)
             
-            # 역변환을 위한 더미 데이터 생성
-            dummy_data_pred = np.zeros((len(y_pred), 20))
-            dummy_data_test = np.zeros((len(y_test), 20))
-            
-            # 예측값과 실제값을 4번째 컬럼에 삽입
-            dummy_data_pred[:, 3] = y_pred
-            dummy_data_test[:, 3] = y_test
-            
-            # 역변환
-            y_pred = self.scaler.inverse_transform(dummy_data_pred)[:, 3]
-            y_test = self.scaler.inverse_transform(dummy_data_test)[:, 3]
-            
-            # 평가 지표 계산
+            # 메트릭 계산
             mse = mean_squared_error(y_test, y_pred)
-            rmse = np.sqrt(mse)
             mae = mean_absolute_error(y_test, y_pred)
             r2 = r2_score(y_test, y_pred)
             
-            # 예측 결과 저장
-            for i in range(len(y_pred)):
-                self.save_prediction(y_pred[i], datetime.now() + timedelta(days=i+1))
-            
-            return {
+            metrics = {
                 'mse': float(mse),
-                'rmse': float(rmse),
                 'mae': float(mae),
                 'r2': float(r2)
             }
+            
+            self.logger.info(f"평가 메트릭: {metrics}")
+            return metrics
             
         except Exception as e:
             self.logger.error(f"모델 평가 중 오류 발생: {str(e)}")
