@@ -7,6 +7,11 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 
+# CUDA 환경 변수 설정
+os.environ['CUDA_HOME'] = '/usr/local/cuda-12.1'
+os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda-12.1/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
+os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.1'
+
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 project_root = str(Path(__file__).parent.parent)
 sys.path.append(project_root)
@@ -24,21 +29,51 @@ def setup_logging():
     )
     return logging.getLogger(__name__)
 
+def get_sentiment_data(db_manager: DatabaseManager, stock_code: str, start_date: str, end_date: str, logger: logging.Logger) -> pd.DataFrame:
+    """TimescaleDB에서 감성 분석 결과 조회"""
+    try:
+        query = """
+        SELECT 
+            pub_date as date,
+            stock_code,
+            finbert_positive,
+            finbert_negative,
+            finbert_neutral,
+            finbert_sentiment
+        FROM news_sentiment
+        WHERE stock_code = %s
+        AND pub_date BETWEEN %s AND %s
+        ORDER BY pub_date;
+        """
+        
+        results = db_manager.execute_query(query, (stock_code, start_date, end_date))
+        
+        if not results:
+            return pd.DataFrame()
+        
+        return pd.DataFrame(results)
+            
+    except Exception as e:
+        logger.error(f"감성 데이터 조회 중 오류 발생: {str(e)}")
+        raise
+
 def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: str, logger: logging.Logger) -> tuple:
     """학습 데이터 로드"""
     try:
         # 주가 데이터 로드
         stock_data = db_manager.get_stock_data(
-            stock_code='066570',
+            stock_code='A066570',
             start_date=start_date,
             end_date=end_date
         )
         
-        # 감성 데이터 로드
-        sentiment_data = db_manager.get_sentiment_data(
-            stock_code='066570',
+        # 감성 분석 결과 로드
+        sentiment_data = get_sentiment_data(
+            db_manager=db_manager,
+            stock_code='A066570',
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            logger=logger
         )
         
         # 경제 데이터 로드
@@ -55,90 +90,67 @@ def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: s
 
 def main():
     """메인 실행 함수"""
-    logger = setup_logging()
-    logger.info("LG전자 주가 예측 모델 학습을 시작합니다.")
-    
     try:
-        # 결과 디렉토리 생성
-        results_dir = Path(__file__).parent.parent / 'results'
-        results_dir.mkdir(exist_ok=True)
-        
-        # 설정 로드
-        config = Config()
+        # 로거 설정
+        logger = setup_logger()
+        logger.info("LG전자 주가 예측 모델 학습을 시작합니다.")
         
         # 데이터베이스 연결
         db_manager = DatabaseManager()
+        logger.info("데이터베이스 연결 성공")
         
-        # 학습 기간 설정 (3년)
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=3*365)).strftime('%Y-%m-%d')
+        # 학습 기간 설정
+        end_date = '2025-03-26'  # 3월 26일까지의 데이터 사용
         
-        # 데이터 로드
-        logger.info("학습 데이터 로드 중...")
-        stock_data, sentiment_data, economic_data = load_training_data(db_manager, start_date, end_date, logger)
+        # 가장 오래된 데이터 날짜 조회
+        query = """
+        SELECT MIN(time) as start_date
+        FROM stock_prices
+        WHERE stock_code = 'A066570';
+        """
+        result = db_manager.execute_query(query)
+        
+        if not result or not result[0] or not result[0]['start_date']:
+            logger.error("LG전자 주가 데이터가 없습니다. 먼저 주가 데이터를 수집해주세요.")
+            return
+            
+        start_date = result[0]['start_date'].strftime('%Y-%m-%d')
+        
+        logger.info(f"학습 기간: {start_date} ~ {end_date}")
         
         # 모델 초기화
         model = LGElectronicsModel()
         
+        # 학습 데이터 로드
+        logger.info("학습 데이터 로드 중...")
+        stock_data, sentiment_data, economic_data = load_training_data(db_manager, start_date, end_date, logger)
+        
+        if stock_data.empty:
+            logger.error("주가 데이터가 비어있습니다.")
+            return
+            
         # 데이터 전처리
         logger.info("데이터 전처리 중...")
-        X_train, y_train, X_val, y_val, X_test, y_test, scaler = model.data_processor.prepare_data(
-            stock_data, sentiment_data, economic_data
-        )
+        X_train, y_train, X_val, y_val, X_test, y_test, scaler = model.prepare_training_data()
         
         # 모델 학습
-        logger.info("모델 학습을 시작합니다...")
-        training_results = model.train(
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_val,
-            y_val=y_val,
-            batch_size=32,
-            epochs=100,
-            early_stopping_patience=10
-        )
+        logger.info("모델 학습 시작...")
+        model.train(X_train, y_train, X_val, y_val)
         
-        # 학습 결과 시각화
-        plt.figure(figsize=(12, 4))
+        # 모델 평가
+        logger.info("모델 평가 중...")
+        metrics = model.evaluate(X_test, y_test)
         
-        # 손실 그래프
-        plt.subplot(1, 2, 1)
-        plt.plot(training_results['history']['loss'], label='Training Loss')
-        plt.plot(training_results['history']['val_loss'], label='Validation Loss')
-        plt.title('Model Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.legend()
-        
-        # 학습률 그래프
-        plt.subplot(1, 2, 2)
-        plt.plot(training_results['history']['lr'], label='Learning Rate')
-        plt.title('Learning Rate')
-        plt.xlabel('Epoch')
-        plt.ylabel('Learning Rate')
-        plt.legend()
-        
-        plt.tight_layout()
-        plt.savefig(results_dir / 'training_curves.png')
-        plt.close()
-        
-        logger.info(f"최적의 에포크: {training_results['best_epoch']}")
-        logger.info(f"최적의 검증 손실: {training_results['best_val_loss']:.4f}")
-        
-        # 학습 결과 출력
-        logger.info("모델 학습이 완료되었습니다.")
-        logger.info(f"평가 지표: {training_results['metrics']}")
-        
-        # 다음 날 예측
-        next_day_prediction = model.predict_next_day()
-        logger.info(f"다음 날 예측 주가: {next_day_prediction:,.0f}원")
+        # 결과 출력
+        logger.info(f"학습 완료! 평가 지표: {metrics}")
         
     except Exception as e:
-        logger.error(f"학습 중 오류가 발생했습니다: {e}")
+        logger.error(f"학습 중 오류가 발생했습니다: {str(e)}")
         raise
     finally:
         if 'db_manager' in locals():
             db_manager.close()
+            logger.info("데이터베이스 연결 종료")
 
 if __name__ == "__main__":
     main() 

@@ -7,27 +7,47 @@ import logging
 from typing import Dict, Any, Optional, Tuple, List
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
+from database.database import DatabaseManager
+
+# 로거 설정
+logger = logging.getLogger(__name__)
+
+# GPU 메모리 설정
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logger.info("GPU 메모리 설정 완료")
+    except RuntimeError as e:
+        logger.error(f"GPU 메모리 설정 실패: {e}")
 
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
         super().__init__(
-            stock_code='066570',
+            stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
             batch_size=32
         )
-        
+        self.db_manager = DatabaseManager()
+        self.n_features = None  # 특성 수 초기화
+        self.models = []  # 앙상블 모델 리스트
+        self.num_models = 3  # 앙상블 모델 수
+
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
             query = """
-                SELECT date, open, high, low, close, volume
+                SELECT time as date, open_price as open, high_price as high, 
+                       low_price as low, close_price as close, volume
                 FROM stock_prices
-                WHERE stock_code = '066570'
-                ORDER BY date
+                WHERE stock_code = 'A066570'
+                ORDER BY time
             """
-            df = pd.read_sql(query, self.conn)
+            result = self.db_manager.execute_query(query)
+            df = pd.DataFrame(result)
             
             if df.empty:
                 raise ValueError("데이터가 비어있습니다.")
@@ -41,8 +61,10 @@ class LGElectronicsModel(BasePricePredictModel):
         except Exception as e:
             logging.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
+        finally:
+            self.db_manager.close()
 
-    def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Any]:
         """학습 데이터 준비"""
         # 데이터 로드
         data = self.load_data()
@@ -66,13 +88,13 @@ class LGElectronicsModel(BasePricePredictModel):
         X_test = X[train_size + val_size:]
         y_test = y[train_size + val_size:]
         
-        return X_train, y_train, X_val, y_val
+        return X_train, y_train, X_val, y_val, X_test, y_test, self.scaler
 
     def train_model(self) -> Dict[str, float]:
         """모델 학습 및 평가"""
         try:
             # 학습 데이터 준비
-            X_train, y_train, X_val, y_val = self.prepare_training_data()
+            X_train, y_train, X_val, y_val, X_test, y_test, _ = self.prepare_training_data()
             
             # 모델 구축
             self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
@@ -81,7 +103,7 @@ class LGElectronicsModel(BasePricePredictModel):
             self.train(X_train, y_train, X_val, y_val)
             
             # 모델 평가
-            metrics = self.evaluate(X_val, y_val)
+            metrics = self.evaluate(X_test, y_test)
             
             # 모델 저장
             self.save_model(f'models/stocks/{self.stock_code}')
@@ -146,12 +168,12 @@ class LGElectronicsModel(BasePricePredictModel):
             # 특성 수 설정
             if self.n_features is None:
                 self.n_features = X_train.shape[2]
-                logger.info(f"특성 수 설정: {self.n_features}")
+                self.logger.info(f"특성 수 설정: {self.n_features}")
             
             # 각 모델 학습
             histories = []
             for i in range(self.num_models):
-                logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
+                self.logger.info(f"\n모델 {i+1}/{self.num_models} 학습 시작")
                 
                 # 모델 빌드
                 model = self.build_model()
@@ -199,13 +221,13 @@ class LGElectronicsModel(BasePricePredictModel):
                     verbose=1
                 )
                 
-                histories.append(history)
+                histories.append(history.history)
                 self.models.append(model)
-            
+                
             return histories
             
         except Exception as e:
-            logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+            self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
             raise
     
     def load_stock_data(self) -> pd.DataFrame:
