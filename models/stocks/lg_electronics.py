@@ -313,32 +313,41 @@ class LGElectronicsModel(BasePricePredictModel):
                 os.path.join(project_root, 'models', 'backup', f'{self.stock_name}_model.h5')
             ]
             
+            self.logger.info(f"현재 작업 디렉토리: {os.getcwd()}")
+            self.logger.info(f"프로젝트 루트 디렉토리: {project_root}")
             self.logger.info(f"모델 파일 검색 경로: {model_paths}")
             
             for model_path in model_paths:
-                if os.path.exists(model_path) and os.path.isfile(model_path):
-                    self.logger.info(f"모델 파일 발견: {model_path}")
-                    try:
-                        self.model = tf.keras.models.load_model(
-                            model_path,
-                            custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse},
-                            compile=False  # 컴파일 옵션 비활성화
-                        )
-                        # 모델 재컴파일
-                        optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)
-                        self.model.compile(
-                            optimizer=optimizer,
-                            loss=enhanced_weighted_time_mse,
-                            metrics=['mae'],
-                            run_eagerly=True
-                        )
-                        self.logger.info(f"모델이 로드되었습니다: {model_path}")
-                        return True
-                    except Exception as e:
-                        self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
-                        continue
+                self.logger.info(f"모델 파일 확인 중: {model_path}")
+                if os.path.exists(model_path):
+                    self.logger.info(f"파일 존재함: {model_path}")
+                    if os.path.isfile(model_path):
+                        self.logger.info(f"파일 크기: {os.path.getsize(model_path)} bytes")
+                        try:
+                            self.model = tf.keras.models.load_model(
+                                model_path,
+                                custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse},
+                                compile=False
+                            )
+                            # 모델 재컴파일
+                            optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)
+                            self.model.compile(
+                                optimizer=optimizer,
+                                loss=enhanced_weighted_time_mse,
+                                metrics=['mae'],
+                                run_eagerly=True
+                            )
+                            self.logger.info(f"모델이 성공적으로 로드되었습니다: {model_path}")
+                            return True
+                        except Exception as e:
+                            self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+                            continue
+                    else:
+                        self.logger.warning(f"경로가 파일이 아닙니다: {model_path}")
+                else:
+                    self.logger.warning(f"파일이 존재하지 않습니다: {model_path}")
             
-            self.logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
+            self.logger.info("저장된 모델을 찾을 수 없습니다. 모델 학습을 시작합니다...")
             return False
             
         except Exception as e:
@@ -738,6 +747,18 @@ class LGElectronicsModel(BasePricePredictModel):
             # 특성 수 저장
             self.n_features = len(features)
             
+            # 데이터 검증
+            if data.empty:
+                raise ValueError("입력 데이터가 비어있습니다.")
+            
+            # 누락된 특성 확인
+            missing_features = [f for f in features if f not in data.columns]
+            if missing_features:
+                raise ValueError(f"누락된 특성이 있습니다: {missing_features}")
+            
+            # NaN 값 처리
+            data = data.fillna(method='ffill').fillna(method='bfill')
+            
             # 데이터 정규화
             scaler = MinMaxScaler()
             scaled_data = scaler.fit_transform(data[features])
@@ -749,10 +770,21 @@ class LGElectronicsModel(BasePricePredictModel):
                 X.append(scaled_data[i:(i + self.sequence_length)])
                 y.append(scaled_data[i + self.sequence_length, 3])  # 종가 예측
             
-            return np.array(X), np.array(y)
+            X = np.array(X)
+            y = np.array(y)
+            
+            # 데이터 형태 검증
+            if len(X.shape) != 3:
+                raise ValueError(f"입력 데이터 shape가 올바르지 않습니다. 예상: (samples, {self.sequence_length}, {self.n_features}), 실제: {X.shape}")
+            
+            if X.shape[1:] != (self.sequence_length, self.n_features):
+                raise ValueError(f"입력 데이터 shape가 올바르지 않습니다. 예상: (samples, {self.sequence_length}, {self.n_features}), 실제: {X.shape}")
+            
+            self.logger.info(f"데이터 준비 완료: X shape={X.shape}, y shape={y.shape}")
+            return X, y
             
         except Exception as e:
-            logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
+            self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
             raise
 
 if __name__ == "__main__":
