@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 import yfinance as yf
-from database.manager import DatabaseManager
+from database.database import DatabaseManager
 
 class BaseStockModel:
     def __init__(self, stock_name: str, symbol: str):
