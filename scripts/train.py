@@ -8,9 +8,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 # CUDA 환경 변수 설정
-os.environ['CUDA_HOME'] = '/usr/local/cuda-11.8'
-os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda-11.8/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
-os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-11.8'
+os.environ['CUDA_HOME'] = '/usr/local/cuda-12.1'
+os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda-12.1/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
+os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.1'
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 project_root = str(Path(__file__).parent.parent)
