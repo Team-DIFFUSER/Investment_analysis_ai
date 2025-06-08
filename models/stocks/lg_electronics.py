@@ -497,6 +497,9 @@ class LGElectronicsModel(BaseStockModel):
             predictions_array = self.scaler.inverse_transform(predictions_array)
             predictions = predictions_array[:, 3]  # close_price 컬럼만 추출
             
+            # 100원 단위로 반올림
+            predictions = np.round(predictions / 100) * 100
+            
             self.logger.info("예측 완료")
             return predictions.tolist()
             
