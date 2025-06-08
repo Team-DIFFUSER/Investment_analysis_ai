@@ -660,46 +660,62 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
             raise
 
-    def train(self, X: np.ndarray, y: np.ndarray):
+    def train(self):
         """모델 학습"""
         try:
-            # 모델 구축
-            if self.model is None:
-                self.model = self.build_model((self.sequence_length, X.shape[2]))
+            # 데이터 로드
+            data = self.load_stock_data()
+            if data.empty:
+                raise ValueError("학습 데이터가 비어있습니다.")
+                
+            # 데이터 전처리
+            X, y = self.prepare_data(data)
+            if X is None or y is None:
+                raise ValueError("데이터 전처리 실패")
+                
+            # 모델 생성
+            self.model = self.build_model((X.shape[1], X.shape[2]))
             
-            # 조기 종료 설정
-            early_stopping = tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True
-            )
-            
-            # 모델 체크포인트 설정
-            checkpoint_path = os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5')
-            os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-            checkpoint = tf.keras.callbacks.ModelCheckpoint(
-                checkpoint_path,
-                monitor='val_loss',
-                save_best_only=True
-            )
-            
-            # 학습
-            history = self.model.fit(
+            # 모델 학습
+            self.model.fit(
                 X, y,
-                epochs=100,
-                batch_size=self.batch_size,
+                epochs=50,
+                batch_size=32,
                 validation_split=0.2,
-                callbacks=[early_stopping, checkpoint],
-                verbose=1
+                callbacks=[
+                    tf.keras.callbacks.EarlyStopping(
+                        monitor='val_loss',
+                        patience=10,
+                        restore_best_weights=True
+                    )
+                ]
             )
             
-            # 학습 결과 로깅
-            self.logger.info(f"학습 완료 - 최종 손실: {history.history['loss'][-1]:.4f}")
-            
-            return history
+            # 모델 저장
+            self._save_model()
+            self._initialized = True
             
         except Exception as e:
             self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+            raise
+            
+    def _save_model(self):
+        """모델 저장"""
+        try:
+            # 프로젝트 루트 디렉토리 찾기
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
+            
+            # 모델 저장 경로
+            model_dir = os.path.join(project_root, 'models', 'checkpoints')
+            os.makedirs(model_dir, exist_ok=True)
+            
+            model_path = os.path.join(model_dir, f'{self.stock_name}_model.h5')
+            self.model.save(model_path)
+            self.logger.info(f"모델 저장 완료: {model_path}")
+            
+        except Exception as e:
+            self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
             raise
 
     def is_initialized(self) -> bool:

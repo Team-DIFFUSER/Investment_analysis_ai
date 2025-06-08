@@ -6,6 +6,10 @@ from datetime import datetime, timedelta
 from .base_model import BaseStockModel
 
 class PredictionManager:
+    """예측 관리자 클래스"""
+    
+    PREDICTIONS_FILE = os.path.join('models', 'predictions', 'predictions.json')
+    
     def __init__(self):
         """예측 관리자 초기화"""
         self.logger = logging.getLogger(__name__)
@@ -15,6 +19,9 @@ class PredictionManager:
             'stock_predictions': {},
             'error_metrics': {}
         }
+        
+        # predictions 디렉토리 생성
+        os.makedirs(os.path.dirname(self.PREDICTIONS_FILE), exist_ok=True)
         self._load_predictions_data()
         
     def _load_predictions_data(self):
