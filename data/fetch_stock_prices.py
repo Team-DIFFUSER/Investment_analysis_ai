@@ -123,6 +123,11 @@ def fetch_stock_data(stock_code, start_date, end_date):
         try:
             print(f"  - 주가 데이터 가져오기 시도 중...")
             print(f"  - 시작일: {start_date}, 종료일: {end_date}")
+            # 종목코드가 유효한지 먼저 확인
+            if not stock.get_market_ticker_name(clean_code):
+                print(f"  - 유효하지 않은 종목코드")
+                return None, 0
+                
             df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
             if df.empty:
                 print(f"  - 데이터가 비어있음")
