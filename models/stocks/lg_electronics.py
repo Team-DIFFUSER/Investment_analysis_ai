@@ -451,58 +451,45 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"모델 구축 중 오류 발생: {str(e)}")
             return None
             
-    def predict_next_days(self) -> Optional[Dict]:
+    def predict_next_five_days(self) -> List[float]:
         """다음 5일 예측"""
         try:
-            # 모델 로드
-            if not self.load_model():
-                self.logger.error("모델 로드 실패")
-                return None
-                
-            # 데이터 로드 및 전처리
+            # 데이터 로드
             data = self.load_data()
             if data.empty:
                 self.logger.error("데이터 로드 실패")
-                return None
-                
-            processed_data = self.enhanced_preprocessing(data)
-            X, _ = self.prepare_data(processed_data)
+                return []
             
+            # 데이터 전처리
+            processed_data = self.enhanced_preprocessing(data)
+            if processed_data.empty:
+                self.logger.error("데이터 전처리 실패")
+                return []
+            
+            # 예측 데이터 준비
+            X, _ = self.prepare_data(processed_data)
             if len(X) == 0:
                 self.logger.error("예측 데이터 준비 실패")
-                return None
-                
-            # 마지막 시퀀스로 예측
+                return []
+            
+            # 마지막 시퀀스만 사용
             last_sequence = X[-1:]
-            predictions = []
+            self.logger.info(f"예측 입력 데이터 shape: {last_sequence.shape}")
             
-            # 5일 예측
-            for _ in range(5):
-                pred = self.model.predict(last_sequence, verbose=0)
-                predictions.append(pred[0][0])
-                
-                # 다음 예측을 위한 시퀀스 업데이트
-                new_sequence = last_sequence[0][1:]
-                new_features = np.zeros((1, 1, last_sequence.shape[2]))
-                new_sequence = np.vstack([new_sequence, new_features])
-                last_sequence = np.array([new_sequence])
+            # 예측
+            predictions = self.model.predict(last_sequence, verbose=0)
             
-            # 예측값 역스케일링
-            predictions = np.array(predictions).reshape(-1, 1)
-            predictions = self.scaler.inverse_transform(predictions)
+            # 예측값 역정규화
+            predictions = self.scaler.inverse_transform(
+                np.concatenate([np.zeros((len(predictions), 3)), predictions.reshape(-1, 1), np.zeros((len(predictions), 15))], axis=1)
+            )[:, 3]
             
-            # 예측 결과 저장
-            result = {
-                'predictions': predictions.flatten().tolist(),
-                'dates': self.get_trading_dates(datetime.now().strftime('%Y-%m-%d'))
-            }
-            
-            self.logger.info(f"예측 완료: {result}")
-            return result
+            self.logger.info(f"예측 완료: {predictions}")
+            return predictions.tolist()
             
         except Exception as e:
             self.logger.error(f"예측 중 오류 발생: {str(e)}")
-            return None
+            return []
 
     def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, float]:
         """모델 평가"""
