@@ -207,6 +207,45 @@ class StockTrainer:
             logger.error(f"리포트 생성 중 오류 발생: {str(e)}")
             raise
 
+def train_model():
+    """LG전자 주식 예측 모델 학습"""
+    try:
+        # 모델 초기화
+        model = LGElectronicsModel()
+        
+        # 데이터 로드 및 전처리
+        logger.info("데이터 로드 및 전처리 시작...")
+        data = model.load_data()
+        if data.empty:
+            logger.error("데이터 로드 실패")
+            return
+            
+        # 데이터 전처리
+        processed_data = model.enhanced_preprocessing(data)
+        if processed_data.empty:
+            logger.error("데이터 전처리 실패")
+            return
+            
+        # 학습 데이터 준비
+        X, y = model.prepare_data(processed_data)
+        if len(X) == 0 or len(y) == 0:
+            logger.error("학습 데이터 준비 실패")
+            return
+            
+        # 모델 학습
+        logger.info("모델 학습 시작...")
+        model.train(X, y)
+        
+        # 모델 저장
+        logger.info("모델 저장 중...")
+        model.save_model()
+        
+        logger.info("모델 학습 완료!")
+        
+    except Exception as e:
+        logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+        raise
+
 def main():
     """메인 실행 함수"""
     try:
@@ -236,4 +275,4 @@ def main():
         logger.info("데이터베이스 연결이 종료되었습니다.")
 
 if __name__ == "__main__":
-    main() 
+    train_model() 

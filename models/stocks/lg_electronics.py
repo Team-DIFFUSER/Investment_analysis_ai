@@ -706,6 +706,48 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
             raise
 
+    def train(self, X: np.ndarray, y: np.ndarray):
+        """모델 학습"""
+        try:
+            # 모델 구축
+            if self.model is None:
+                self.model = self.build_model((self.sequence_length, X.shape[2]))
+            
+            # 조기 종료 설정
+            early_stopping = tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss',
+                patience=10,
+                restore_best_weights=True
+            )
+            
+            # 모델 체크포인트 설정
+            checkpoint_path = os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5')
+            os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+            checkpoint = tf.keras.callbacks.ModelCheckpoint(
+                checkpoint_path,
+                monitor='val_loss',
+                save_best_only=True
+            )
+            
+            # 학습
+            history = self.model.fit(
+                X, y,
+                epochs=100,
+                batch_size=self.batch_size,
+                validation_split=0.2,
+                callbacks=[early_stopping, checkpoint],
+                verbose=1
+            )
+            
+            # 학습 결과 로깅
+            self.logger.info(f"학습 완료 - 최종 손실: {history.history['loss'][-1]:.4f}")
+            
+            return history
+            
+        except Exception as e:
+            self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+            raise
+
 if __name__ == "__main__":
     model = LGElectronicsModel()
     model.train_model() 
