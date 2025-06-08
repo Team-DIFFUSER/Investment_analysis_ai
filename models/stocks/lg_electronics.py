@@ -663,26 +663,20 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
             return None, None
 
-    def train(self):
+    def train(self, X: np.ndarray, y: np.ndarray) -> None:
         """모델 학습"""
         try:
-            # 데이터 로드
-            data = self.load_stock_data()
-            if data.empty:
-                raise ValueError("학습 데이터가 비어있습니다.")
-                
-            # 데이터 전처리
-            X, y = self.prepare_data(data)
-            if X is None or y is None:
-                raise ValueError("데이터 전처리 실패")
-                
-            # 모델 생성
-            self.model = self.build_model((X.shape[1], X.shape[2]))
+            self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
             
-            # 모델 학습
-            self.model.fit(
+            # 모델이 없으면 새로 생성
+            if self.model is None:
+                self.model = self.build_model((self.sequence_length, X.shape[2]))
+            
+            # 학습 시작
+            self.logger.info("학습 시작...")
+            history = self.model.fit(
                 X, y,
-                epochs=50,
+                epochs=100,
                 batch_size=32,
                 validation_split=0.2,
                 callbacks=[
@@ -695,14 +689,14 @@ class LGElectronicsModel(BaseStockModel):
             )
             
             # 모델 저장
-            self._save_model()
-            self._initialized = True
+            self.save_model()
+            self.logger.info("학습 완료 및 모델 저장")
             
         except Exception as e:
-            self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+            self.logger.error(f"학습 중 오류 발생: {str(e)}")
             raise
-            
-    def _save_model(self):
+
+    def save_model(self):
         """모델 저장"""
         try:
             # 프로젝트 루트 디렉토리 찾기
