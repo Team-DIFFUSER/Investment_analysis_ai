@@ -630,53 +630,69 @@ class LGElectronicsModel(BaseStockModel):
         """학습 데이터 준비"""
         try:
             # 특성 선택
-            features = [
-                'open', 'high', 'low', 'close', 'volume',
+            features = ['Open', 'High', 'Low', 'Close', 'Volume']
+            
+            # 기술적 지표 계산
+            df = data.copy()
+            
+            # 가격 변화율
+            df['price_change'] = df['Close'].pct_change()
+            df['price_change_5d'] = df['Close'].pct_change(periods=5)
+            df['price_change_20d'] = df['Close'].pct_change(periods=20)
+            
+            # 거래량 변화율
+            df['volume_change'] = df['Volume'].pct_change()
+            df['volume_change_5d'] = df['Volume'].pct_change(periods=5)
+            
+            # 이동평균선
+            df['sma_5'] = df['Close'].rolling(window=5).mean()
+            df['sma_20'] = df['Close'].rolling(window=20).mean()
+            df['sma_60'] = df['Close'].rolling(window=60).mean()
+            
+            # RSI
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            df['rsi'] = 100 - (100 / (1 + rs))
+            
+            # MACD
+            exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+            exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+            df['macd'] = exp1 - exp2
+            df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+            df['macd_diff'] = df['macd'] - df['macd_signal']
+            
+            # Bollinger Bands
+            df['bb_mid'] = df['Close'].rolling(window=20).mean()
+            bb_std = df['Close'].rolling(window=20).std()
+            df['bb_high'] = df['bb_mid'] + (bb_std * 2)
+            df['bb_low'] = df['bb_mid'] - (bb_std * 2)
+            
+            # Rate of Change
+            df['roc'] = df['Close'].pct_change(periods=10) * 100
+            
+            # 결측치 처리
+            df = df.fillna(method='ffill').fillna(method='bfill')
+            
+            # 모든 특성 추가
+            features.extend([
                 'price_change', 'price_change_5d', 'price_change_20d',
                 'volume_change', 'volume_change_5d',
                 'sma_5', 'sma_20', 'sma_60',
                 'rsi', 'macd', 'macd_signal', 'macd_diff',
                 'bb_high', 'bb_low', 'bb_mid', 'roc'
-            ]
+            ])
             
-            # 특성 수 저장
-            self.n_features = len(features)
+            # 데이터 스케일링
+            scaled_data = self.scaler.fit_transform(df[features])
             
-            # 데이터 검증
-            if data.empty:
-                raise ValueError("입력 데이터가 비어있습니다.")
-            
-            # 누락된 특성 확인
-            missing_features = [f for f in features if f not in data.columns]
-            if missing_features:
-                raise ValueError(f"누락된 특성이 있습니다: {missing_features}")
-            
-            # NaN 값 처리
-            data = data.fillna(method='ffill').fillna(method='bfill')
-            
-            # 데이터 정규화
-            scaler = MinMaxScaler()
-            scaled_data = scaler.fit_transform(data[features])
-            self.scaler = scaler
-            
-            # 시퀀스 데이터 생성
             X, y = [], []
             for i in range(len(scaled_data) - self.sequence_length):
                 X.append(scaled_data[i:(i + self.sequence_length)])
-                y.append(scaled_data[i + self.sequence_length, 3])  # 종가 예측
-            
-            X = np.array(X)
-            y = np.array(y)
-            
-            # 데이터 형태 검증
-            if len(X.shape) != 3:
-                raise ValueError(f"입력 데이터 shape가 올바르지 않습니다. 예상: (samples, {self.sequence_length}, {self.n_features}), 실제: {X.shape}")
-            
-            if X.shape[1:] != (self.sequence_length, self.n_features):
-                raise ValueError(f"입력 데이터 shape가 올바르지 않습니다. 예상: (samples, {self.sequence_length}, {self.n_features}), 실제: {X.shape}")
-            
-            self.logger.info(f"데이터 준비 완료: X shape={X.shape}, y shape={y.shape}")
-            return X, y
+                y.append(scaled_data[i + self.sequence_length, 3])  # Close 가격
+                
+            return np.array(X), np.array(y)
             
         except Exception as e:
             self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
