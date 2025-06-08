@@ -132,7 +132,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
             print(f"  - 주가 데이터 가져오기 시도 중...")
             print(f"  - 시작일: {start_date}, 종료일: {end_date}")
             
-            # 종목코드가 유효한지 먼저 확인
+            # 종목코드가 유효한지 확인
             try:
                 stock_name = stock.get_market_ticker_name(clean_code)
                 if not stock_name:
@@ -155,10 +155,12 @@ def fetch_stock_data(stock_code, start_date, end_date):
                 current_end_str = current_end.strftime("%Y%m%d")
                 
                 print(f"  - 기간 데이터 가져오기: {current_start_str} ~ {current_end_str}")
-                df = stock.get_market_ohlcv_by_date(current_start_str, current_end_str, clean_code, adjusted=False)
-                
-                if not df.empty:
-                    all_data.append(df)
+                try:
+                    df = stock.get_market_ohlcv_by_date(current_start_str, current_end_str, clean_code, adjusted=False)
+                    if not df.empty:
+                        all_data.append(df)
+                except Exception as e:
+                    print(f"  - 해당 기간 데이터 가져오기 실패: {str(e)}")
                 
                 current_start = current_end + timedelta(days=1)
                 time.sleep(1)  # API 호출 간격 조절
