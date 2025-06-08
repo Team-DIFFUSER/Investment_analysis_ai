@@ -20,9 +20,14 @@ logger = logging.getLogger(__name__)
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
-        # GPU 메모리 동적 할당 설정
+        # GPU 메모리 제한 설정
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
+            # GPU 메모리 제한 설정 (전체 메모리의 80%로 제한)
+            tf.config.set_logical_device_configuration(
+                gpu,
+                [tf.config.LogicalDeviceConfiguration(memory_limit=16600)]  # 20750MB의 80%
+            )
         logger.info(f"GPU 사용 가능: {gpus[0]}")
         tf.keras.mixed_precision.set_global_policy('float32')
         logger.info("Mixed Precision 비활성화됨")
@@ -77,7 +82,7 @@ class LGElectronicsModel(BasePricePredictModel):
             stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
-            batch_size=32  # 배치 크기 감소
+            batch_size=16  # 배치 크기 더 감소
         )
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
@@ -411,23 +416,23 @@ class LGElectronicsModel(BasePricePredictModel):
         # 입력 레이어
         inputs = tf.keras.layers.Input(shape=input_shape, dtype=tf.float32)
         
-        # LSTM 레이어 (유닛 수 감소)
-        x = tf.keras.layers.LSTM(64, return_sequences=True, dtype=tf.float32)(inputs)
+        # LSTM 레이어 (유닛 수 더 감소)
+        x = tf.keras.layers.LSTM(32, return_sequences=True, dtype=tf.float32)(inputs)
         x = tf.keras.layers.BatchNormalization(dtype=tf.float32)(x)
         x = tf.keras.layers.Dropout(0.2)(x)
         
         # Conv1D 레이어 (필터 수 감소)
-        x = tf.keras.layers.Conv1D(64, kernel_size=2, padding='same', activation='relu', dtype=tf.float32)(x)
+        x = tf.keras.layers.Conv1D(32, kernel_size=2, padding='same', activation='relu', dtype=tf.float32)(x)
         x = tf.keras.layers.BatchNormalization(dtype=tf.float32)(x)
         x = tf.keras.layers.Dropout(0.2)(x)
         
         # LSTM 레이어
-        x = tf.keras.layers.LSTM(32, return_sequences=False, dtype=tf.float32)(x)
+        x = tf.keras.layers.LSTM(16, return_sequences=False, dtype=tf.float32)(x)
         x = tf.keras.layers.BatchNormalization(dtype=tf.float32)(x)
         x = tf.keras.layers.Dropout(0.2)(x)
         
         # Dense 레이어
-        x = tf.keras.layers.Dense(16, activation='relu', dtype=tf.float32)(x)
+        x = tf.keras.layers.Dense(8, activation='relu', dtype=tf.float32)(x)
         x = tf.keras.layers.BatchNormalization(dtype=tf.float32)(x)
         x = tf.keras.layers.Dropout(0.2)(x)
         
