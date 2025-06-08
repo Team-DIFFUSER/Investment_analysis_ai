@@ -6,6 +6,7 @@ import tensorflow as tf
 from datetime import datetime, timedelta
 import logging
 from typing import Dict, Any, Optional, Tuple, List
+import random
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
@@ -15,24 +16,29 @@ from utils.date_utils import get_next_five_business_days
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# GPU 메모리 설정
+# GPU 설정 단순화
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
-        # GPU 메모리 증가 허용
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        # GPU 메모리 제한 설정 (전체 메모리의 70% 사용)
-        tf.config.experimental.set_virtual_device_configuration(
-            gpus[0],
-            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=16124)]  # 23034MB의 70%
-        )
-        logger.info("GPU 메모리 설정 완료")
+        logger.info(f"GPU 사용 가능: {gpus[0]}")
+        # Mixed Precision 활성화 (FP16)
+        tf.keras.mixed_precision.set_global_policy('mixed_float16')
+        logger.info("Mixed Precision 활성화됨")
     except RuntimeError as e:
-        logger.error(f"GPU 메모리 설정 실패: {e}")
+        logger.error(f"GPU 설정 오류: {e}")
+else:
+    logger.warning("GPU를 찾을 수 없습니다. CPU를 사용합니다.")
 
-# TensorFlow 성능 최적화
-tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일 활성화
+# 기존 세션 정리 및 메모리 해제
+tf.keras.backend.clear_session()
+tf.compat.v1.reset_default_graph()
+
+# 기본 환경 변수 설정
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+
+# TensorFlow 최적화 설정
+tf.config.optimizer.set_jit(True)
 tf.config.optimizer.set_experimental_options({
     "layout_optimizer": True,
     "constant_folding": True,
@@ -50,19 +56,36 @@ tf.config.optimizer.set_experimental_options({
     "auto_mixed_precision": True
 })
 
+logger.info(f"TensorFlow 버전: {tf.__version__}")
+
+# 재현성 설정 강화
+SEED = 42
+os.environ['PYTHONHASHSEED'] = str(SEED)
+os.environ['TF_DETERMINISTIC_OPS'] = '1'
+os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+
+# 모든 랜덤 시드 설정
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+random.seed(SEED)
+
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
         super().__init__(
             stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
-            batch_size=64  # 배치 크기 감소
+            batch_size=128  # 배치 크기 증가
         )
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
         self.num_models = 3  # 앙상블 모델 수
         self.logger = logging.getLogger(__name__)
+        
+        # GPU 사용 가능 여부 확인
+        self.device = tf.config.list_physical_devices('GPU')[0] if tf.config.list_physical_devices('GPU') else 'CPU'
+        self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
 
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
@@ -199,6 +222,9 @@ class LGElectronicsModel(BasePricePredictModel):
             if self.n_features is None:
                 self.n_features = X_train.shape[2]
                 self.logger.info(f"특성 수 설정: {self.n_features}")
+            
+            # 현재 사용 중인 디바이스 확인
+            self.logger.info(f"학습 시작 - 사용 중인 디바이스: {self.device}")
             
             histories = []
             for i in range(self.num_models):
