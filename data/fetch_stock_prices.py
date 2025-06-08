@@ -8,6 +8,7 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import FinanceDataReader as fdr
+import numpy as np
 
 # 현재 파일의 절대 경로
 current_file = Path(__file__).resolve()
@@ -22,43 +23,30 @@ from database.database import execute_query, execute_values_query, execute_trans
 from pykrx import stock
 
 def create_stock_prices_table():
-    """주가 데이터 테이블 생성"""
-    queries = [
-        ("""
-        CREATE TABLE IF NOT EXISTS stock_prices (
-            time TIMESTAMPTZ NOT NULL,
-            stock_code VARCHAR(10) NOT NULL,
-            stock_name VARCHAR(50) NOT NULL,
-            open_price DECIMAL(10,2),
-            high_price DECIMAL(10,2),
-            low_price DECIMAL(10,2),
-            close_price DECIMAL(10,2),
-            volume BIGINT,
-            market_cap BIGINT,
-            foreign_holding BIGINT,
-            foreign_holding_ratio DECIMAL(5,2)
-        );
-        """, None),
-        ("""
-        DO $$ 
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM timescaledb_information.hypertables 
-                WHERE hypertable_name = 'stock_prices'
-            ) THEN
-                PERFORM create_hypertable('stock_prices', 'time');
-            END IF;
-        END $$;
-        """, None),
-        ("CREATE INDEX IF NOT EXISTS idx_stock_prices_code ON stock_prices (stock_code, time DESC);", None)
-    ]
-    execute_transaction(queries)
+    """주가 데이터를 저장할 테이블을 생성합니다."""
+    query = """
+    CREATE TABLE IF NOT EXISTS stock_prices (
+        time DATE,
+        stock_code VARCHAR(20),
+        stock_name VARCHAR(100),
+        open_price DECIMAL(20,2),
+        high_price DECIMAL(20,2),
+        low_price DECIMAL(20,2),
+        close_price DECIMAL(20,2),
+        volume DECIMAL(20,2),
+        market_cap DECIMAL(20,2),
+        foreign_holding DECIMAL(20,2),
+        foreign_holding_ratio DECIMAL(20,2),
+        PRIMARY KEY (time, stock_code)
+    );
+    """
+    execute_query(query)
     print("Stock prices table created successfully!")
 
 def get_date_range():
-    """고정된 종료일(20250321)과 그로부터 500일 전의 시작일을 계산하여 반환"""
-    end_date = datetime.strptime('20250321', '%Y%m%d')
-    start_date = end_date - timedelta(days=500)
+    """오늘 날짜까지의 데이터를 가져오기 위한 날짜 범위 계산"""
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=730)  # 2년(약 730일) 전부터
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
@@ -188,31 +176,46 @@ def fetch_stock_prices():
         # 모든 주가 데이터 합치기
         combined_df = pd.concat(all_stock_data, ignore_index=True)
         
+        # BIGINT 범위 초과값 처리
+        for col in ['volume', 'foreign_holding']:
+            if col in combined_df.columns:
+                combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
+                combined_df[col] = combined_df[col].apply(lambda x: x if pd.notnull(x) and abs(x) <= 9223372036854775807 else None)
+        
+        # market_cap은 DECIMAL로 처리
+        if 'market_cap' in combined_df.columns:
+            combined_df['market_cap'] = pd.to_numeric(combined_df['market_cap'], errors='coerce')
+        
+        # NaN을 None으로 변환
+        combined_df = combined_df.where(pd.notnull(combined_df), None)
+        
         # 트랜잭션으로 데이터 업데이트
-        queries = [
-            ("""
-            INSERT INTO stock_prices (
-                time, stock_code, stock_name, open_price, high_price,
-                low_price, close_price, volume, market_cap,
-                foreign_holding, foreign_holding_ratio
-            ) VALUES %s
-            ON CONFLICT (time, stock_code) DO UPDATE SET
-                open_price = EXCLUDED.open_price,
-                high_price = EXCLUDED.high_price,
-                low_price = EXCLUDED.low_price,
-                close_price = EXCLUDED.close_price,
-                volume = EXCLUDED.volume,
-                market_cap = EXCLUDED.market_cap,
-                foreign_holding = EXCLUDED.foreign_holding,
-                foreign_holding_ratio = EXCLUDED.foreign_holding_ratio
-            """, [(
-                row['time'], row['stock_code'], row['stock_name'],
-                row['open_price'], row['high_price'], row['low_price'],
-                row['close_price'], row['volume'], row.get('market_cap'),
-                row.get('foreign_holding'), row.get('foreign_holding_ratio')
-            ) for _, row in combined_df.iterrows()])
-        ]
-        execute_transaction(queries)
+        query = """
+        INSERT INTO stock_prices (
+            time, stock_code, stock_name, open_price, high_price,
+            low_price, close_price, volume, market_cap,
+            foreign_holding, foreign_holding_ratio
+        ) VALUES %s
+        ON CONFLICT (time, stock_code) DO UPDATE SET
+            stock_name = EXCLUDED.stock_name,
+            open_price = EXCLUDED.open_price,
+            high_price = EXCLUDED.high_price,
+            low_price = EXCLUDED.low_price,
+            close_price = EXCLUDED.close_price,
+            volume = EXCLUDED.volume,
+            market_cap = EXCLUDED.market_cap,
+            foreign_holding = EXCLUDED.foreign_holding,
+            foreign_holding_ratio = EXCLUDED.foreign_holding_ratio;
+        """
+        
+        data = [(
+            row['time'], row['stock_code'], row['stock_name'],
+            row['open_price'], row['high_price'], row['low_price'],
+            row['close_price'], row['volume'], row.get('market_cap'),
+            row.get('foreign_holding'), row.get('foreign_holding_ratio')
+        ) for _, row in combined_df.iterrows()]
+        
+        execute_values_query(query, data)
         
         print(f"\n💾 모든 데이터가 데이터베이스에 저장되었습니다.")
         print(f"📊 통계:")

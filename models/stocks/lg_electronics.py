@@ -163,9 +163,9 @@ class LGElectronicsModel(BaseStockModel):
             X, y = self.prepare_data(processed_data)
             self.logger.info(f"데이터 준비 완료: X shape={X.shape}, y shape={y.shape}")
             
-            # 데이터 분할
-            train_size = int(len(X) * 0.8)
-            val_size = int(len(X) * 0.1)
+            # 데이터 분할 (60-20-20)
+            train_size = int(len(X) * 0.6)
+            val_size = int(len(X) * 0.2)
             
             X_train = X[:train_size]
             y_train = y[:train_size]
@@ -183,21 +183,27 @@ class LGElectronicsModel(BaseStockModel):
             callbacks = [
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
-                    patience=20,
+                    patience=30,
                     restore_best_weights=True,
-                    min_delta=0.001
+                    min_delta=0.0001
                 ),
                 tf.keras.callbacks.ReduceLROnPlateau(
                     monitor='val_loss',
-                    factor=0.5,
+                    factor=0.2,
                     patience=10,
-                    min_lr=0.0001
+                    min_lr=0.00001,
+                    verbose=1
                 ),
                 tf.keras.callbacks.ModelCheckpoint(
                     filepath=os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5'),
                     monitor='val_loss',
                     save_best_only=True,
-                    save_weights_only=False
+                    save_weights_only=False,
+                    verbose=1
+                ),
+                tf.keras.callbacks.TensorBoard(
+                    log_dir=os.path.join('logs', 'tensorboard', self.stock_name),
+                    histogram_freq=1
                 )
             ]
             
@@ -205,8 +211,8 @@ class LGElectronicsModel(BaseStockModel):
             history = self.model.fit(
                 X_train, y_train,
                 validation_data=(X_val, y_val),
-                epochs=200,
-                batch_size=32,
+                epochs=500,
+                batch_size=64,
                 callbacks=callbacks,
                 verbose=1
             )
@@ -403,40 +409,59 @@ class LGElectronicsModel(BaseStockModel):
     def build_model(self, input_shape: tuple) -> tf.keras.Model:
         """LG전자 전용 모델 구축"""
         try:
-            model = tf.keras.Sequential([
-                # 첫 번째 LSTM 레이어
-                layers.LSTM(128, input_shape=input_shape, return_sequences=True),
-                layers.BatchNormalization(),
-                layers.Dropout(0.3),
-                
-                # 두 번째 LSTM 레이어
-                layers.LSTM(64, return_sequences=True),
-                layers.BatchNormalization(),
-                layers.Dropout(0.3),
-                
-                # 세 번째 LSTM 레이어
-                layers.LSTM(32, return_sequences=False),
-                layers.BatchNormalization(),
-                layers.Dropout(0.3),
-                
-                # Dense 레이어
-                layers.Dense(64, activation='relu'),
-                layers.BatchNormalization(),
-                layers.Dropout(0.3),
-                
-                layers.Dense(32, activation='relu'),
-                layers.BatchNormalization(),
-                layers.Dropout(0.3),
-                
-                # 출력 레이어
-                layers.Dense(1)
-            ])
+            # 입력 레이어
+            inputs = layers.Input(shape=input_shape)
+            
+            # 첫 번째 LSTM 레이어
+            x = layers.LSTM(256, input_shape=input_shape, return_sequences=True)(inputs)
+            x = layers.BatchNormalization()(x)
+            x = layers.Dropout(0.3)(x)
+            
+            # Attention 메커니즘
+            attention = layers.MultiHeadAttention(
+                num_heads=4, key_dim=64
+            )(x, x)
+            x = layers.Add()([x, attention])
+            x = layers.LayerNormalization()(x)
+            
+            # 두 번째 LSTM 레이어
+            x = layers.LSTM(128, return_sequences=True)(x)
+            x = layers.BatchNormalization()(x)
+            x = layers.Dropout(0.3)(x)
+            
+            # 세 번째 LSTM 레이어
+            x = layers.LSTM(64, return_sequences=False)(x)
+            x = layers.BatchNormalization()(x)
+            x = layers.Dropout(0.3)(x)
+            
+            # Dense 레이어
+            x = layers.Dense(128, activation='relu')(x)
+            x = layers.BatchNormalization()(x)
+            x = layers.Dropout(0.3)(x)
+            
+            x = layers.Dense(64, activation='relu')(x)
+            x = layers.BatchNormalization()(x)
+            x = layers.Dropout(0.3)(x)
+            
+            # 출력 레이어
+            outputs = layers.Dense(1)(x)
+            
+            # 모델 생성
+            model = tf.keras.Model(inputs=inputs, outputs=outputs)
+            
+            # 옵티마이저 설정
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=self.learning_rate,
+                beta_1=0.9,
+                beta_2=0.999,
+                epsilon=1e-07
+            )
             
             # 모델 컴파일
             model.compile(
-                optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
-                loss='mse',
-                metrics=['mae']
+                optimizer=optimizer,
+                loss='huber',  # Huber loss for robustness
+                metrics=['mae', 'mse']
             )
             
             return model
@@ -774,6 +799,108 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"모델 초기화 중 오류 발생: {str(e)}")
             self._initialized = False
             raise
+
+    def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
+        """데이터 전처리 강화"""
+        try:
+            # 기본 기술적 지표
+            data['MA5'] = data['close_price'].rolling(window=5).mean()
+            data['MA20'] = data['close_price'].rolling(window=20).mean()
+            data['MA60'] = data['close_price'].rolling(window=60).mean()
+            data['MA120'] = data['close_price'].rolling(window=120).mean()
+            
+            # 볼린저 밴드
+            data['BB_middle'] = data['close_price'].rolling(window=20).mean()
+            data['BB_std'] = data['close_price'].rolling(window=20).std()
+            data['BB_upper'] = data['BB_middle'] + (data['BB_std'] * 2)
+            data['BB_lower'] = data['BB_middle'] - (data['BB_std'] * 2)
+            
+            # RSI
+            delta = data['close_price'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            data['RSI'] = 100 - (100 / (1 + rs))
+            
+            # MACD
+            exp1 = data['close_price'].ewm(span=12, adjust=False).mean()
+            exp2 = data['close_price'].ewm(span=26, adjust=False).mean()
+            data['MACD'] = exp1 - exp2
+            data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
+            data['MACD_Histogram'] = data['MACD'] - data['Signal_Line']
+            
+            # 스토캐스틱
+            low_min = data['low_price'].rolling(window=14).min()
+            high_max = data['high_price'].rolling(window=14).max()
+            data['Stoch_K'] = 100 * ((data['close_price'] - low_min) / (high_max - low_min))
+            data['Stoch_D'] = data['Stoch_K'].rolling(window=3).mean()
+            
+            # ATR (Average True Range)
+            tr1 = data['high_price'] - data['low_price']
+            tr2 = abs(data['high_price'] - data['close_price'].shift())
+            tr3 = abs(data['low_price'] - data['close_price'].shift())
+            data['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            data['ATR'] = data['TR'].rolling(window=14).mean()
+            
+            # 거래량 지표
+            data['Volume_MA5'] = data['volume'].rolling(window=5).mean()
+            data['Volume_MA20'] = data['volume'].rolling(window=20).mean()
+            data['Volume_Ratio'] = data['volume'] / data['Volume_MA20']
+            
+            # 가격 변화율
+            data['Price_Change'] = data['close_price'].pct_change()
+            data['Price_Change_MA5'] = data['Price_Change'].rolling(window=5).mean()
+            data['Price_Change_MA20'] = data['Price_Change'].rolling(window=20).mean()
+            
+            # 변동성
+            data['Volatility'] = data['close_price'].rolling(window=20).std()
+            data['Volatility_MA5'] = data['Volatility'].rolling(window=5).mean()
+            
+            # 모멘텀 지표
+            data['ROC'] = data['close_price'].pct_change(periods=10) * 100
+            data['Momentum'] = data['close_price'] - data['close_price'].shift(10)
+            
+            # 추세 강도
+            data['ADX'] = self._calculate_adx(data)
+            
+            # 결측치 처리
+            data = data.fillna(method='ffill').fillna(method='bfill')
+            
+            return data
+            
+        except Exception as e:
+            self.logger.error(f"데이터 전처리 중 오류 발생: {str(e)}")
+            return pd.DataFrame()
+            
+    def _calculate_adx(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
+        """ADX (Average Directional Index) 계산"""
+        try:
+            # True Range
+            tr1 = data['high_price'] - data['low_price']
+            tr2 = abs(data['high_price'] - data['close_price'].shift())
+            tr3 = abs(data['low_price'] - data['close_price'].shift())
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            atr = tr.rolling(window=period).mean()
+            
+            # Directional Movement
+            up_move = data['high_price'] - data['high_price'].shift()
+            down_move = data['low_price'].shift() - data['low_price']
+            
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+            
+            plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / atr)
+            minus_di = 100 * (pd.Series(minus_dm).rolling(window=period).mean() / atr)
+            
+            # ADX
+            dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+            adx = dx.rolling(window=period).mean()
+            
+            return adx
+            
+        except Exception as e:
+            self.logger.error(f"ADX 계산 중 오류 발생: {str(e)}")
+            return pd.Series()
 
 if __name__ == "__main__":
     model = LGElectronicsModel()
