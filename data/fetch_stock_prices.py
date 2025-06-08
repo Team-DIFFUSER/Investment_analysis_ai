@@ -70,8 +70,8 @@ def get_date_range():
     """2025년 3월 21일까지의 데이터를 가져오도록 설정"""
     end_date = datetime(2025, 3, 26)
     start_date = end_date - timedelta(days=500)
-    # YYYYMMDD 형식으로 변환
-    return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
+    # YYYY-MM-DD 형식으로 변환
+    return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
 def clean_stock_code(stock_code):
     """종목코드 정리
