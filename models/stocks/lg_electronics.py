@@ -311,7 +311,10 @@ class LGElectronicsModel(BasePricePredictModel):
             
             for model_path in model_paths:
                 if os.path.exists(model_path) and os.path.isfile(model_path):
-                    self.model = tf.keras.models.load_model(model_path)
+                    self.model = tf.keras.models.load_model(
+                        model_path,
+                        custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse}
+                    )
                     self.logger.info(f"모델이 로드되었습니다: {model_path}")
                     return True
             
@@ -513,7 +516,7 @@ class LGElectronicsModel(BasePricePredictModel):
         """다음 5일 주가 예측"""
         try:
             # 모델이 없으면 학습 수행
-            if not self.models:
+            if not hasattr(self, 'model') or self.model is None:
                 logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
                 self.train_model()
                 logger.info("모델 학습이 완료되었습니다.")
@@ -536,14 +539,9 @@ class LGElectronicsModel(BasePricePredictModel):
             
             # 각 영업일에 대해 예측 수행
             for target_date in business_days:
-                # 앙상블 예측
-                ensemble_predictions = []
-                for model in self.models:
-                    pred = model.predict(current_data, verbose=0)
-                    ensemble_predictions.append(pred[0][0])
-                
-                # 예측값 평균 계산
-                predicted_price = np.mean(ensemble_predictions)
+                # 예측 수행
+                pred = self.model.predict(current_data, verbose=0)
+                predicted_price = pred[0][0]
                 
                 # 예측값 역변환
                 predicted_price = self.scaler.inverse_transform(
@@ -564,7 +562,8 @@ class LGElectronicsModel(BasePricePredictModel):
                 
                 predictions.append({
                     'date': target_date,
-                    'price': predicted_price
+                    'predicted_price': predicted_price,
+                    'confidence': 0.8  # 기본 신뢰도
                 })
                 
                 # 다음 예측을 위한 데이터 업데이트
