@@ -12,6 +12,16 @@ from database.database import DatabaseManager
 # 로거 설정
 logger = logging.getLogger(__name__)
 
+# GPU 메모리 설정
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logger.info("GPU 메모리 설정 완료")
+    except RuntimeError as e:
+        logger.error(f"GPU 메모리 설정 실패: {e}")
+
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
         super().__init__(
