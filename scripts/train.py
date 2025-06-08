@@ -105,6 +105,11 @@ def main():
         WHERE stock_code = '066570';
         """
         result = db_manager.execute_query(query)
+        
+        if not result or not result[0] or not result[0][0]:
+            logger.error("LG전자 주가 데이터가 없습니다. 먼저 주가 데이터를 수집해주세요.")
+            return
+            
         start_date = result[0][0].strftime('%Y-%m-%d')
         
         logger.info(f"학습 기간: {start_date} ~ {end_date}")
@@ -116,6 +121,10 @@ def main():
         logger.info("학습 데이터 로드 중...")
         stock_data, sentiment_data, economic_data = load_training_data(db_manager, start_date, end_date, logger)
         
+        if stock_data.empty:
+            logger.error("주가 데이터가 비어있습니다.")
+            return
+            
         # 데이터 전처리
         logger.info("데이터 전처리 중...")
         X_train, y_train, X_val, y_val, X_test, y_test, scaler = model.prepare_training_data()
