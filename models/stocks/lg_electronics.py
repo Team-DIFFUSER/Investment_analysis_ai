@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, Tuple, List
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
-from scripts.predict import get_next_five_business_days
+from utils.date_utils import get_next_five_business_days
 
 # 로거 설정
 logger = logging.getLogger(__name__)

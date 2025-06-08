@@ -13,6 +13,7 @@ sys.path.append(project_root)
 
 from models.stocks.lg_electronics import LGElectronicsModel
 from database.database import DatabaseManager
+from utils.date_utils import get_next_five_business_days
 
 # 로거 설정
 logger = logging.getLogger(__name__)
