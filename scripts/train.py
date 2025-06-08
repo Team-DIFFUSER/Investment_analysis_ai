@@ -61,19 +61,15 @@ class StockTrainer:
             model_path = os.path.join(model_dir, f'{stock_name}_model.h5')
             
             try:
-                # 디렉토리가 파일인 경우 삭제
-                if os.path.exists(model_dir):
-                    if not os.path.isdir(model_dir):
-                        os.remove(model_dir)
-                    else:
-                        # 디렉토리가 이미 존재하는 경우, 기존 파일 삭제
-                        for file in os.listdir(model_dir):
-                            file_path = os.path.join(model_dir, file)
-                            if os.path.isfile(file_path):
-                                os.remove(file_path)
-                
-                # 디렉토리 생성
-                os.makedirs(model_dir, exist_ok=True)
+                # 디렉토리 생성 시도
+                try:
+                    os.makedirs(model_dir, exist_ok=True)
+                except Exception as e:
+                    logger.warning(f"기본 디렉토리 생성 실패: {str(e)}")
+                    # 대체 디렉토리 사용
+                    model_dir = os.path.join('models', 'temp')
+                    model_path = os.path.join(model_dir, f'{stock_name}_model.h5')
+                    os.makedirs(model_dir, exist_ok=True)
                 
                 # 모델 저장
                 model.model.save(model_path)
@@ -81,17 +77,18 @@ class StockTrainer:
                 
             except Exception as e:
                 logger.error(f"모델 저장 중 오류 발생: {str(e)}")
-                # 임시 디렉토리에 저장 시도
-                temp_dir = os.path.join('models', 'temp')
-                os.makedirs(temp_dir, exist_ok=True)
-                temp_path = os.path.join(temp_dir, f'{stock_name}_model.h5')
-                model.model.save(temp_path)
-                logger.info(f"{stock_name} 모델이 임시 위치에 저장되었습니다: {temp_path}")
+                # 최후의 대체 저장 경로 사용
+                final_dir = os.path.join('models', 'backup')
+                final_path = os.path.join(final_dir, f'{stock_name}_model.h5')
+                os.makedirs(final_dir, exist_ok=True)
+                model.model.save(final_path)
+                logger.info(f"{stock_name} 모델이 백업 위치에 저장되었습니다: {final_path}")
             
             return {
                 'stock_name': stock_name,
                 'status': 'success',
-                'history': history
+                'history': history,
+                'model_path': model_path
             }
         except Exception as e:
             logger.error(f"{stock_name} 학습 중 오류 발생: {str(e)}")
