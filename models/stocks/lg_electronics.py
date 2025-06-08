@@ -568,9 +568,9 @@ class LGElectronicsModel(BasePricePredictModel):
             # 예측값과 실제값의 shape 확인 및 조정
             if y_pred.shape != y_test.shape:
                 self.logger.warning(f"Shape 불일치: y_pred {y_pred.shape}, y_test {y_test.shape}")
-                # 마지막 시퀀스만 사용
-                y_pred = y_pred[:, -1]
-                y_test = y_test[:, -1]
+                # 1차원으로 변환
+                y_pred = y_pred.reshape(-1)
+                y_test = y_test.reshape(-1)
             
             # 역변환
             y_pred = self.scaler.inverse_transform(
@@ -589,13 +589,7 @@ class LGElectronicsModel(BasePricePredictModel):
             
             # 예측 결과 저장
             for i in range(len(y_pred)):
-                self.db_manager.save_prediction(
-                    stock_code=self.stock_code,
-                    stock_name=self.stock_name,
-                    prediction_date=datetime.now(),
-                    target_date=datetime.now() + timedelta(days=i+1),
-                    predicted_price=float(y_pred[i])
-                )
+                self.save_prediction(y_pred[i], datetime.now() + timedelta(days=i+1))
             
             return {
                 'mse': float(mse),
@@ -680,31 +674,20 @@ class LGElectronicsModel(BasePricePredictModel):
             query = """
                 INSERT INTO model_training_history (
                     stock_name, training_date, loss, val_loss, mae, val_mae
-                ) VALUES %s
-                ON CONFLICT (stock_name, training_date) DO UPDATE SET
-                    loss = EXCLUDED.loss,
-                    val_loss = EXCLUDED.val_loss,
-                    mae = EXCLUDED.mae,
-                    val_mae = EXCLUDED.val_mae
-                RETURNING id
+                ) VALUES (%s, %s, %s, %s, %s, %s)
             """
-            params = [(
+            params = (
                 self.stock_name,
                 datetime.now(),
                 float(history['loss'][-1]) if history.get('loss') else None,
                 float(history['val_loss'][-1]) if history.get('val_loss') else None,
                 float(history['mae'][-1]) if history.get('mae') else None,
                 float(history['val_mae'][-1]) if history.get('val_mae') else None
-            )]
+            )
             
-            # 트랜잭션으로 쿼리 실행
-            queries = [(query, params)]
-            result = self.db_manager.execute_transaction(queries)
-            
-            if result:
-                self.logger.info(f"{self.stock_name} 학습 결과 저장 완료 (ID: {result[0][0]})")
-            else:
-                self.logger.warning(f"{self.stock_name} 학습 결과 저장 실패")
+            # 쿼리 실행
+            self.db_manager.execute_query(query, params, fetch=False)
+            self.logger.info(f"{self.stock_name} 학습 결과 저장 완료")
             
         except Exception as e:
             self.logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
@@ -716,22 +699,18 @@ class LGElectronicsModel(BasePricePredictModel):
             query = """
                 INSERT INTO predicted_stock_prices (
                     stock_code, stock_name, prediction_date, target_date, predicted_price
-                ) VALUES %s
-                ON CONFLICT (stock_code, target_date) DO UPDATE SET
-                    prediction_date = EXCLUDED.prediction_date,
-                    predicted_price = EXCLUDED.predicted_price
+                ) VALUES (%s, %s, %s, %s, %s)
             """
-            params = [(
+            params = (
                 self.stock_code,
                 self.stock_name,
                 datetime.now(),
                 target_date,
                 float(prediction)
-            )]
+            )
             
-            # 트랜잭션으로 쿼리 실행
-            queries = [(query, params)]
-            self.db_manager.execute_transaction(queries)
+            # 쿼리 실행
+            self.db_manager.execute_query(query, params, fetch=False)
             self.logger.info(f"{self.stock_name} 예측 결과 저장 완료")
             
         except Exception as e:
