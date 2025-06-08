@@ -56,9 +56,10 @@ class StockTrainer:
             # 모델 학습
             history = model.train_model()
             
-            # 학습 결과가 None이 아닌 경우에만 저장
-            if history is not None:
-                self.save_training_results(stock_name, history)
+            # 모델 저장
+            model_path = os.path.join('models', 'checkpoints', f'{stock_name}_model.h5')
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            model.model.save(model_path)
             
             return {
                 'stock_name': stock_name,
@@ -88,51 +89,6 @@ class StockTrainer:
         except Exception as e:
             logger.error(f"학습 데이터 로드 중 오류 발생: {str(e)}")
             return None
-
-    def save_training_results(self, stock_name: str, history: Dict[str, List[float]]) -> None:
-        """학습 결과 저장"""
-        try:
-            # history가 None인 경우 처리
-            if history is None:
-                logger.warning(f"{stock_name}의 학습 히스토리가 없습니다.")
-                return
-
-            # history가 dict가 아닌 경우 처리
-            if not isinstance(history, dict):
-                logger.warning(f"{stock_name}의 학습 히스토리가 올바른 형식이 아닙니다.")
-                return
-
-            # 필요한 키가 있는지 확인
-            required_keys = ['loss', 'val_loss', 'mae', 'val_mae']
-            if not all(key in history for key in required_keys):
-                logger.warning(f"{stock_name}의 학습 히스토리에 필요한 키가 없습니다.")
-                return
-
-            # 학습 결과를 데이터베이스에 저장
-            query = """
-            INSERT INTO model_training_history (
-                stock_name, training_date, loss, val_loss, mae, val_mae
-            ) VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            params = (
-                stock_name,
-                datetime.now(),
-                float(history['loss'][-1]) if history['loss'] else None,
-                float(history['val_loss'][-1]) if history['val_loss'] else None,
-                float(history['mae'][-1]) if history['mae'] else None,
-                float(history['val_mae'][-1]) if history['val_mae'] else None
-            )
-            self.db_manager.execute_query(query, params)
-            
-            # 모델 저장
-            model_path = os.path.join('models', 'checkpoints', f'{stock_name}_model.h5')
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
-            self.models[stock_name].model.save(model_path)
-            
-            logger.info(f"{stock_name} 학습 결과 저장 완료")
-        except Exception as e:
-            logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
-            raise
 
     def train_all_stocks(self) -> Dict[str, Any]:
         """모든 종목에 대한 학습 수행"""
