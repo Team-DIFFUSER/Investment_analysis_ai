@@ -8,28 +8,37 @@ from .base_model import BaseStockModel
 class PredictionManager:
     def __init__(self):
         """예측 관리자 초기화"""
+        self.logger = logging.getLogger(__name__)
         self.models = {}
         self.predictions = {}
         self.predictions_data = {
             'stock_predictions': {},
             'error_metrics': {}
         }
-        self.logger = logging.getLogger(__name__)
         self._load_predictions_data()
         
     def _load_predictions_data(self):
         """예측 데이터 로드"""
         try:
-            data_path = os.path.join('models', 'predictions', 'predictions.json')
-            if os.path.exists(data_path):
-                with open(data_path, 'r') as f:
-                    self.predictions_data = json.load(f)
+            if os.path.exists(self.PREDICTIONS_FILE):
+                with open(self.PREDICTIONS_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.predictions_data = {
+                        'stock_predictions': data.get('stock_predictions', {}),
+                        'error_metrics': data.get('error_metrics', {})
+                    }
             else:
-                self.predictions_data = {'stock_predictions': {}, 'error_metrics': {}}
+                self.predictions_data = {
+                    'stock_predictions': {},
+                    'error_metrics': {}
+                }
                 
         except Exception as e:
             self.logger.error(f"예측 데이터 로드 중 오류 발생: {str(e)}")
-            self.predictions_data = {'stock_predictions': {}, 'error_metrics': {}}
+            self.predictions_data = {
+                'stock_predictions': {},
+                'error_metrics': {}
+            }
             
     def _save_predictions_data(self):
         """예측 데이터 저장"""
@@ -54,8 +63,10 @@ class PredictionManager:
                 model.initialize()
                 
             self.models[stock_name] = model
-            self.predictions_data['stock_predictions'][stock_name] = {}
-            self.predictions_data['error_metrics'][stock_name] = {}
+            if stock_name not in self.predictions_data['stock_predictions']:
+                self.predictions_data['stock_predictions'][stock_name] = {}
+            if stock_name not in self.predictions_data['error_metrics']:
+                self.predictions_data['error_metrics'][stock_name] = {}
             self.logger.info(f"모델 추가 완료: {stock_name}")
             
         except Exception as e:

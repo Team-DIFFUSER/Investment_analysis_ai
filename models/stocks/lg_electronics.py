@@ -285,37 +285,29 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
 
-    def load_model(self) -> bool:
+    def load_model(self):
         """모델 로드"""
         try:
             # 프로젝트 루트 디렉토리 찾기
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(os.path.dirname(current_dir))
+            project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
             
             # 모델 파일 경로
             model_path = os.path.join(project_root, 'models', 'checkpoints', f'{self.stock_name}_model.h5')
-            backup_path = os.path.join(project_root, 'models', 'backup', f'{self.stock_name}_model.h5')
-            
             self.logger.info(f"모델 파일 검색: {model_path}")
             
-            # 메인 모델 로드 시도
             if os.path.exists(model_path):
-                self.model = tf.keras.models.load_model(model_path)
+                self.logger.info(f"모델 파일 발견: {model_path}")
+                model = tf.keras.models.load_model(model_path)
                 self.logger.info("모델 로드 성공")
-                return True
+                return model
+            else:
+                self.logger.warning(f"모델 파일을 찾을 수 없습니다: {model_path}")
+                return None
                 
-            # 백업 모델 로드 시도
-            if os.path.exists(backup_path):
-                self.model = tf.keras.models.load_model(backup_path)
-                self.logger.info("백업 모델 로드 성공")
-                return True
-                
-            self.logger.warning("저장된 모델을 찾을 수 없습니다.")
-            return False
-            
         except Exception as e:
-            self.logger.error(f"모델 로드 실패: {str(e)}")
-            return False
+            self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+            return None
     
     def load_stock_data(self) -> pd.DataFrame:
         """주가 데이터 로드"""
