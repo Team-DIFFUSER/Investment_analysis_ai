@@ -14,6 +14,9 @@ sys.path.append(project_root)
 from models.stocks.lg_electronics import LGElectronicsModel
 from database.database import DatabaseManager
 
+# 로거 설정
+logger = logging.getLogger(__name__)
+
 def setup_logging():
     """로깅 설정"""
     logging.basicConfig(

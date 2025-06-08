@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional, Tuple, List
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
+from scripts.predict import get_next_five_business_days
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -438,70 +439,68 @@ class LGElectronicsModel(BasePricePredictModel):
             return 81800.0
     
     def predict_next_five_days(self, start_date: datetime) -> List[Dict]:
-        """다음 5일 예측"""
+        """다음 5일 주가 예측"""
         try:
+            # 모델이 없으면 학습 수행
             if not self.models:
-                raise ValueError("모델이 로드되지 않았습니다. 먼저 모델을 로드해주세요.")
+                logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
+                self.train_model()
+                logger.info("모델 학습이 완료되었습니다.")
             
-            # 1. 이전 예측값 조회
-            end_date = start_date + timedelta(days=4)
-            previous_predictions = self.get_previous_predictions(start_date, end_date)
+            # 다음 5개 영업일 계산
+            business_days = get_next_five_business_days(start_date)
             
-            # 2. 새로운 데이터로 예측
-            # 최근 20일 데이터를 가져와서 예측에 사용
-            query_start_date = start_date - timedelta(days=20)
-            stock_data = self.load_stock_data()
-            sentiment_data = self.load_sentiment_data()
-            economic_data = self.load_economic_data()
+            # 최근 주가 데이터 로드
+            data = self.load_data()
+            recent_data = data.tail(self.sequence_length)
             
-            logger.info(f"주가 데이터: {len(stock_data)}행")
-            logger.info(f"감성 데이터: {len(sentiment_data)}행")
-            logger.info(f"경제 데이터: {len(economic_data)}행")
+            # 데이터 전처리
+            processed_data = self.enhanced_preprocessing(recent_data)
             
             # 예측 데이터 준비
-            X = self.data_processor.prepare_prediction_data(
-                stock_data, sentiment_data, economic_data, self.sequence_length
-            )
+            X, _ = self.prepare_data(processed_data)
             
-            # 앙상블 예측 수행
             predictions = []
-            for model in self.models:
-                pred = model.predict(X)
-                predictions.append(pred)
-            new_predictions = np.mean(predictions, axis=0)[0]  # 앙상블 평균
+            current_data = X[-1:]
             
-            # 3. 예측값 조정
-            adjusted_predictions = []
-            last_actual_price = float(stock_data['close'].iloc[-1])
-            
-            for i in range(5):
-                target_date = start_date + timedelta(days=i)
+            # 각 영업일에 대해 예측 수행
+            for target_date in business_days:
+                # 앙상블 예측
+                ensemble_predictions = []
+                for model in self.models:
+                    pred = model.predict(current_data, verbose=0)
+                    ensemble_predictions.append(pred[0][0])
                 
-                if i == 0:
-                    # 첫날은 실제값 사용
-                    predicted_price = last_actual_price
-                else:
-                    # 이전 예측값이 있는 경우 조정
-                    if not previous_predictions.empty and i < len(previous_predictions):
-                        prev_pred = previous_predictions.iloc[i-1]['predicted_price']
-                        next_pred = last_actual_price * (1 + float(new_predictions[i]))
-                        adjustment = self.calculate_prediction_adjustment(
-                            last_actual_price, prev_pred, next_pred
-                        )
-                        predicted_price = next_pred + adjustment
-                    else:
-                        # 이전 예측값이 없는 경우 현재 예측값 사용
-                        predicted_price = last_actual_price * (1 + float(new_predictions[i]))
+                # 예측값 평균 계산
+                predicted_price = np.mean(ensemble_predictions)
                 
-                # 100원 단위로 반올림
-                predicted_price = round(predicted_price / 100) * 100
+                # 예측값 역변환
+                predicted_price = self.scaler.inverse_transform(
+                    np.concatenate([np.zeros((1, 3)), np.array([[predicted_price]]), np.zeros((1, 16))], axis=1)
+                )[0, 3]
                 
-                adjusted_predictions.append({
+                # 이전 예측값 조회
+                prev_predictions = self.get_previous_predictions(start_date, target_date)
+                
+                # 예측값 조정
+                if not prev_predictions.empty:
+                    actual_price = self.get_latest_price()
+                    prev_predicted_price = prev_predictions.iloc[-1]['predicted_price']
+                    adjustment = self.calculate_prediction_adjustment(
+                        actual_price, prev_predicted_price, predicted_price
+                    )
+                    predicted_price += adjustment
+                
+                predictions.append({
                     'date': target_date,
                     'price': predicted_price
                 })
+                
+                # 다음 예측을 위한 데이터 업데이트
+                current_data = np.roll(current_data, -1, axis=1)
+                current_data[0, -1] = predicted_price
             
-            return adjusted_predictions
+            return predictions
             
         except Exception as e:
             logger.error(f"예측 중 오류 발생: {str(e)}")
