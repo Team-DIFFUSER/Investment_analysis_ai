@@ -58,7 +58,7 @@ def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: s
     try:
         # 주가 데이터 로드
         stock_data = db_manager.get_stock_data(
-            stock_code='066570',
+            stock_code='A066570',
             start_date=start_date,
             end_date=end_date
         )
@@ -66,7 +66,7 @@ def load_training_data(db_manager: DatabaseManager, start_date: str, end_date: s
         # 감성 분석 결과 로드
         sentiment_data = get_sentiment_data(
             db_manager=db_manager,
-            stock_code='066570',
+            stock_code='A066570',
             start_date=start_date,
             end_date=end_date,
             logger=logger
@@ -102,7 +102,7 @@ def main():
         query = """
         SELECT MIN(time) as start_date
         FROM stock_prices
-        WHERE stock_code = '066570';
+        WHERE stock_code = 'A066570';
         """
         result = db_manager.execute_query(query)
         
