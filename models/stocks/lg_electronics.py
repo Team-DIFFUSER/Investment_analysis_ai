@@ -492,8 +492,10 @@ class LGElectronicsModel(BaseStockModel):
                 current_sequence = new_sequence.reshape(1, self.sequence_length, len(features))
             
             # 예측값 역스케일링
-            predictions = np.array(predictions).reshape(-1, 1)
-            predictions = self.scaler.inverse_transform(predictions)[:, 3]  # close_price 컬럼만 사용
+            predictions_array = np.zeros((len(predictions), len(features)))
+            predictions_array[:, 3] = predictions  # close_price 컬럼에 예측값 저장
+            predictions_array = self.scaler.inverse_transform(predictions_array)
+            predictions = predictions_array[:, 3]  # close_price 컬럼만 추출
             
             self.logger.info("예측 완료")
             return predictions.tolist()
