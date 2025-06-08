@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 from typing import Dict, Any, Optional, Tuple, List
 import random
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
@@ -90,8 +91,8 @@ class LGElectronicsModel(BasePricePredictModel):
         try:
             # 데이터베이스에서 주가 데이터 가져오기
             query = """
-                SELECT time, open_price, high_price, low_price, close_price, volume,
-                       market_cap, foreign_holding, foreign_holding_ratio
+                SELECT time, stock_code, stock_name, open_price, high_price, low_price, 
+                       close_price, volume, market_cap, foreign_holding, foreign_holding_ratio
                 FROM stock_prices
                 WHERE stock_code = 'A066570'
                 ORDER BY time
@@ -103,8 +104,8 @@ class LGElectronicsModel(BasePricePredictModel):
             
             # DataFrame 생성 및 컬럼명 설정
             df = pd.DataFrame(result, columns=[
-                'time', 'open_price', 'high_price', 'low_price', 'close_price', 'volume',
-                'market_cap', 'foreign_holding', 'foreign_holding_ratio'
+                'time', 'stock_code', 'stock_name', 'open_price', 'high_price', 'low_price',
+                'close_price', 'volume', 'market_cap', 'foreign_holding', 'foreign_holding_ratio'
             ])
             
             # 날짜를 인덱스로 설정
@@ -555,44 +556,52 @@ class LGElectronicsModel(BasePricePredictModel):
             logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
     
-    def evaluate(self, X_test, y_test) -> Dict[str, float]:
+    def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, float]:
         """모델 평가"""
         try:
-            if self.model is None:
+            if not hasattr(self, 'model') or self.model is None:
                 raise ValueError("모델이 초기화되지 않았습니다.")
             
-            # 모델 평가
-            test_loss, test_mae = self.model.evaluate(X_test, y_test, verbose=0)
-            
             # 예측 수행
-            y_pred = self.model.predict(X_test, verbose=0)
+            y_pred = self.model.predict(X_test)
             
             # 예측값과 실제값의 shape 확인 및 조정
-            y_test = y_test.reshape(-1)
-            y_pred = y_pred.reshape(-1)
+            if y_pred.shape != y_test.shape:
+                self.logger.warning(f"Shape 불일치: y_pred {y_pred.shape}, y_test {y_test.shape}")
+                # 마지막 시퀀스만 사용
+                y_pred = y_pred[:, -1]
+                y_test = y_test[:, -1]
             
-            # 예측값 역변환
-            y_test_original = self.scaler.inverse_transform(
-                np.concatenate([np.zeros((len(y_test), 3)), y_test.reshape(-1, 1), np.zeros((len(y_test), 16))], axis=1)
-            )[:, 3]
-            
-            y_pred_original = self.scaler.inverse_transform(
+            # 역변환
+            y_pred = self.scaler.inverse_transform(
                 np.concatenate([np.zeros((len(y_pred), 3)), y_pred.reshape(-1, 1), np.zeros((len(y_pred), 16))], axis=1)
             )[:, 3]
             
+            y_test = self.scaler.inverse_transform(
+                np.concatenate([np.zeros((len(y_test), 3)), y_test.reshape(-1, 1), np.zeros((len(y_test), 16))], axis=1)
+            )[:, 3]
+            
             # 평가 지표 계산
-            mse = np.mean((y_test_original - y_pred_original) ** 2)
+            mse = mean_squared_error(y_test, y_pred)
             rmse = np.sqrt(mse)
-            mae = np.mean(np.abs(y_test_original - y_pred_original))
-            mape = np.mean(np.abs((y_test_original - y_pred_original) / y_test_original)) * 100
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            # 예측 결과 저장
+            for i in range(len(y_pred)):
+                self.db_manager.save_prediction(
+                    stock_code=self.stock_code,
+                    stock_name=self.stock_name,
+                    prediction_date=datetime.now(),
+                    target_date=datetime.now() + timedelta(days=i+1),
+                    predicted_price=float(y_pred[i])
+                )
             
             return {
-                'test_loss': float(test_loss),
-                'test_mae': float(test_mae),
                 'mse': float(mse),
                 'rmse': float(rmse),
                 'mae': float(mae),
-                'mape': float(mape)
+                'r2': float(r2)
             }
             
         except Exception as e:
@@ -671,21 +680,62 @@ class LGElectronicsModel(BasePricePredictModel):
             query = """
                 INSERT INTO model_training_history (
                     stock_name, training_date, loss, val_loss, mae, val_mae
-                ) VALUES (%s, %s, %s, %s, %s, %s)
+                ) VALUES %s
+                ON CONFLICT (stock_name, training_date) DO UPDATE SET
+                    loss = EXCLUDED.loss,
+                    val_loss = EXCLUDED.val_loss,
+                    mae = EXCLUDED.mae,
+                    val_mae = EXCLUDED.val_mae
+                RETURNING id
             """
-            params = (
+            params = [(
                 self.stock_name,
                 datetime.now(),
                 float(history['loss'][-1]) if history.get('loss') else None,
                 float(history['val_loss'][-1]) if history.get('val_loss') else None,
                 float(history['mae'][-1]) if history.get('mae') else None,
                 float(history['val_mae'][-1]) if history.get('val_mae') else None
-            )
-            self.db_manager.execute_query(query, params, fetch=False)
-            self.logger.info(f"{self.stock_name} 학습 결과 저장 완료")
+            )]
+            
+            # 트랜잭션으로 쿼리 실행
+            queries = [(query, params)]
+            result = self.db_manager.execute_transaction(queries)
+            
+            if result:
+                self.logger.info(f"{self.stock_name} 학습 결과 저장 완료 (ID: {result[0][0]})")
+            else:
+                self.logger.warning(f"{self.stock_name} 학습 결과 저장 실패")
             
         except Exception as e:
             self.logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
+            raise
+
+    def save_prediction(self, prediction: float, target_date: datetime) -> None:
+        """예측 결과 저장"""
+        try:
+            query = """
+                INSERT INTO predicted_stock_prices (
+                    stock_code, stock_name, prediction_date, target_date, predicted_price
+                ) VALUES %s
+                ON CONFLICT (stock_code, target_date) DO UPDATE SET
+                    prediction_date = EXCLUDED.prediction_date,
+                    predicted_price = EXCLUDED.predicted_price
+            """
+            params = [(
+                self.stock_code,
+                self.stock_name,
+                datetime.now(),
+                target_date,
+                float(prediction)
+            )]
+            
+            # 트랜잭션으로 쿼리 실행
+            queries = [(query, params)]
+            self.db_manager.execute_transaction(queries)
+            self.logger.info(f"{self.stock_name} 예측 결과 저장 완료")
+            
+        except Exception as e:
+            self.logger.error(f"예측 결과 저장 중 오류 발생: {str(e)}")
             raise
 
 if __name__ == "__main__":
