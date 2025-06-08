@@ -21,9 +21,9 @@ gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
         print(f"GPU 사용 가능: {gpus[0]}")
-        # Mixed Precision 활성화 (FP16)
-        tf.keras.mixed_precision.set_global_policy('mixed_float16')
-        print("Mixed Precision 활성화됨")
+        # Mixed Precision 설정
+        tf.keras.mixed_precision.set_global_policy('float32')
+        print("Mixed Precision 비활성화됨")
     except RuntimeError as e:
         print(f"GPU 설정 오류: {e}")
 else:
@@ -35,10 +35,10 @@ tf.compat.v1.reset_default_graph()
 
 # 기본 환경 변수 설정
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '0'
 
 # TensorFlow 최적화 설정
-tf.config.optimizer.set_jit(True)
+tf.config.optimizer.set_jit(False)  # XLA JIT 컴파일 비활성화
 tf.config.optimizer.set_experimental_options({
     "layout_optimizer": True,
     "constant_folding": True,
@@ -53,7 +53,7 @@ tf.config.optimizer.set_experimental_options({
     "scoped_allocator_optimization": True,
     "pin_to_host_optimization": True,
     "implementation_selector": True,
-    "auto_mixed_precision": True
+    "auto_mixed_precision": False
 })
 
 logger.info(f"TensorFlow 버전: {tf.__version__}")
@@ -73,7 +73,7 @@ class LGElectronicsModel(BasePricePredictModel):
             stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
-            batch_size=128  # Kaggle 환경과 동일하게 설정
+            batch_size=64  # 배치 크기 조정
         )
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
@@ -405,14 +405,14 @@ class LGElectronicsModel(BasePricePredictModel):
             input_shape = (self.sequence_length, self.n_features)
         
         # 입력 레이어
-        inputs = tf.keras.layers.Input(shape=input_shape)
+        inputs = tf.keras.layers.Input(shape=input_shape, dtype=tf.float32)
         
         # Multi-scale Convolutional Input (MCI)
         conv_outputs = []
-        kernel_sizes = [2, 3, 5, 7, 11]  # 다양한 시간 스케일
+        kernel_sizes = [2, 3, 5]  # 커널 크기 감소
         for kernel_size in kernel_sizes:
-            conv = tf.keras.layers.Conv1D(128, kernel_size=kernel_size, padding='same', activation='relu')(inputs)
-            conv = tf.keras.layers.BatchNormalization()(conv)
+            conv = tf.keras.layers.Conv1D(64, kernel_size=kernel_size, padding='same', activation='relu', dtype=tf.float32)(inputs)
+            conv = tf.keras.layers.BatchNormalization(dtype=tf.float32)(conv)
             conv_outputs.append(conv)
         
         # 컨볼루션 출력 결합
@@ -420,21 +420,23 @@ class LGElectronicsModel(BasePricePredictModel):
         
         # Attention 메커니즘
         attention_output = tf.keras.layers.MultiHeadAttention(
-            num_heads=8,
-            key_dim=128
+            num_heads=4,  # 헤드 수 감소
+            key_dim=64,   # 차원 감소
+            dtype=tf.float32
         )(x, x)
         
         # Residual connection
         x = tf.keras.layers.Add()([x, attention_output])
         
         # GRU 레이어
-        gru_output = tf.keras.layers.GRU(256, return_sequences=True)(x)
+        gru_output = tf.keras.layers.GRU(128, return_sequences=True, dtype=tf.float32)(x)  # 유닛 수 감소
         gru_output = tf.keras.layers.Dropout(0.3)(gru_output)
         
         # 추가 Attention 레이어
         attention_output2 = tf.keras.layers.MultiHeadAttention(
-            num_heads=8,
-            key_dim=256
+            num_heads=4,  # 헤드 수 감소
+            key_dim=128,  # 차원 감소
+            dtype=tf.float32
         )(gru_output, gru_output)
         
         # Residual connection
@@ -444,16 +446,16 @@ class LGElectronicsModel(BasePricePredictModel):
         x = tf.keras.layers.Lambda(lambda x: x[:, -1, :])(x)
         
         # Dense 레이어
-        x = tf.keras.layers.Dense(256, activation='relu')(x)
-        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dense(128, activation='relu', dtype=tf.float32)(x)  # 유닛 수 감소
+        x = tf.keras.layers.BatchNormalization(dtype=tf.float32)(x)
         x = tf.keras.layers.Dropout(0.3)(x)
         
-        x = tf.keras.layers.Dense(128, activation='relu')(x)
-        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dense(64, activation='relu', dtype=tf.float32)(x)  # 유닛 수 감소
+        x = tf.keras.layers.BatchNormalization(dtype=tf.float32)(x)
         x = tf.keras.layers.Dropout(0.3)(x)
         
         # 출력 레이어 (5% 제한을 위한 tanh 활성화 함수 사용)
-        outputs = tf.keras.layers.Dense(1, activation='tanh')(x) * 0.05
+        outputs = tf.keras.layers.Dense(1, activation='tanh', dtype=tf.float32)(x) * 0.05
         
         # 모델 생성
         model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
@@ -463,8 +465,7 @@ class LGElectronicsModel(BasePricePredictModel):
         model.compile(
             optimizer=optimizer,
             loss=enhanced_weighted_time_mse,
-            metrics=['mae'],
-            jit_compile=True  # XLA JIT 컴파일 활성화
+            metrics=['mae']
         )
         
         return model
