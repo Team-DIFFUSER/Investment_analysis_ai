@@ -57,9 +57,19 @@ class StockTrainer:
             history = model.train_model()
             
             # 모델 저장
-            model_path = os.path.join('models', 'checkpoints', f'{stock_name}_model.h5')
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            model_dir = os.path.join('models', 'checkpoints')
+            model_path = os.path.join(model_dir, f'{stock_name}_model.h5')
+            
+            # 디렉토리가 파일인 경우 삭제
+            if os.path.exists(model_dir) and not os.path.isdir(model_dir):
+                os.remove(model_dir)
+            
+            # 디렉토리 생성
+            os.makedirs(model_dir, exist_ok=True)
+            
+            # 모델 저장
             model.model.save(model_path)
+            logger.info(f"{stock_name} 모델이 저장되었습니다: {model_path}")
             
             return {
                 'stock_name': stock_name,
