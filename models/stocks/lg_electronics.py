@@ -1,6 +1,7 @@
 import os
-import pandas as pd
+import sys
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from datetime import datetime, timedelta
 import logging
@@ -10,9 +11,6 @@ from models.base.price_predict_model import BasePricePredictModel, setup_gpu, en
 from database.database import DatabaseManager
 from utils.date_utils import get_next_five_business_days
 
-# 로거 설정
-logger = logging.getLogger(__name__)
-
 # GPU 메모리 설정
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
@@ -20,17 +18,17 @@ if gpus:
         # GPU 메모리 증가 허용
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-        # GPU 메모리 제한 설정 (90% 사용)
-        tf.config.set_logical_device_configuration(
+        # GPU 메모리 제한 설정 (전체 메모리의 90% 사용)
+        tf.config.experimental.set_virtual_device_configuration(
             gpus[0],
-            [tf.config.LogicalDeviceConfiguration(memory_limit=1024 * 12)]  # 12GB 제한
+            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=20730)]  # 23034MB의 90%
         )
-        logger.info("GPU 설정 완료")
+        logger.info("GPU 메모리 설정 완료")
     except RuntimeError as e:
-        logger.error(f"GPU 설정 중 오류 발생: {e}")
+        logger.error(f"GPU 메모리 설정 실패: {e}")
 
 # TensorFlow 성능 최적화
-tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일러 활성화
+tf.config.optimizer.set_jit(True)  # XLA JIT 컴파일 활성화
 tf.config.optimizer.set_experimental_options({
     "layout_optimizer": True,
     "constant_folding": True,
@@ -45,8 +43,12 @@ tf.config.optimizer.set_experimental_options({
     "scoped_allocator_optimization": True,
     "pin_to_host_optimization": True,
     "implementation_selector": True,
-    "auto_mixed_precision": True  # 자동 혼합 정밀도 활성화
+    "auto_mixed_precision": True
 })
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
@@ -60,6 +62,7 @@ class LGElectronicsModel(BasePricePredictModel):
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
         self.num_models = 3  # 앙상블 모델 수
+        self.logger = logging.getLogger(__name__)
 
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
@@ -229,10 +232,10 @@ class LGElectronicsModel(BasePricePredictModel):
                     )
                 ]
                 
-                # 데이터셋 최적화
+                # 데이터셋 최적화 - 메모리 효율적인 방식으로 변경
                 train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
                 train_dataset = train_dataset.cache()
-                train_dataset = train_dataset.shuffle(buffer_size=10000)  # 버퍼 크기 감소
+                train_dataset = train_dataset.shuffle(buffer_size=100000)  # 버퍼 크기 증가
                 train_dataset = train_dataset.batch(self.batch_size)
                 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
                 
@@ -241,14 +244,23 @@ class LGElectronicsModel(BasePricePredictModel):
                 val_dataset = val_dataset.batch(self.batch_size)
                 val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
                 
+                # 메모리 관리를 위한 steps_per_epoch 설정
+                steps_per_epoch = len(X_train) // self.batch_size
+                validation_steps = len(X_val) // self.batch_size
+                
                 # 모델 학습
                 history = model.fit(
                     train_dataset,
                     validation_data=val_dataset,
-                    epochs=300,  # 에포크 수 감소
+                    epochs=300,
+                    steps_per_epoch=steps_per_epoch,
+                    validation_steps=validation_steps,
                     callbacks=callbacks,
                     verbose=1
                 )
+                
+                # 메모리 정리
+                tf.keras.backend.clear_session()
                 
                 histories.append(history.history)
                 self.models.append(model)
