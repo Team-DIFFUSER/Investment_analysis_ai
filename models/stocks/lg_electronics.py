@@ -303,14 +303,20 @@ class LGElectronicsModel(BasePricePredictModel):
     def load_models(self):
         """저장된 모델 로드"""
         try:
-            # 기본 경로와 백업 경로 모두 확인
+            # 프로젝트 루트 디렉토리 찾기
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            
+            # 기본 경로와 백업 경로 모두 확인 (절대 경로 사용)
             model_paths = [
-                os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5'),
-                os.path.join('models', 'backup', f'{self.stock_name}_model.h5')
+                os.path.join(project_root, 'models', 'checkpoints', f'{self.stock_name}_model.h5'),
+                os.path.join(project_root, 'models', 'backup', f'{self.stock_name}_model.h5')
             ]
+            
+            self.logger.info(f"모델 파일 검색 경로: {model_paths}")
             
             for model_path in model_paths:
                 if os.path.exists(model_path) and os.path.isfile(model_path):
+                    self.logger.info(f"모델 파일 발견: {model_path}")
                     self.model = tf.keras.models.load_model(
                         model_path,
                         custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse}
@@ -483,7 +489,8 @@ class LGElectronicsModel(BasePricePredictModel):
         model.compile(
             optimizer=optimizer,
             loss=enhanced_weighted_time_mse,
-            metrics=['mae']
+            metrics=['mae'],
+            run_eagerly=True  # 즉시 실행 모드 활성화
         )
         
         return model
@@ -535,12 +542,12 @@ class LGElectronicsModel(BasePricePredictModel):
             X, _ = self.prepare_data(processed_data)
             
             predictions = []
-            current_data = X[-1:]
+            current_data = X[-1:].copy()  # 데이터 복사
             
             # 각 영업일에 대해 예측 수행
             for target_date in business_days:
-                # 예측 수행
-                pred = self.model.predict(current_data, verbose=0)
+                # 예측 수행 (배치 크기 명시)
+                pred = self.model.predict(current_data, batch_size=1, verbose=0)
                 predicted_price = pred[0][0]
                 
                 # 예측값 역변환
