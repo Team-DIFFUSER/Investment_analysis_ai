@@ -404,6 +404,10 @@ class LGElectronicsModel(BasePricePredictModel):
     
     def build_model(self, input_shape=None):
         """모델 구축"""
+        # 입력 shape 설정
+        if input_shape is None:
+            input_shape = (self.sequence_length, self.n_features)
+        
         # 입력 레이어
         inputs = tf.keras.layers.Input(shape=input_shape, dtype=tf.float32)
         
