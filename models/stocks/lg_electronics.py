@@ -153,7 +153,12 @@ class LGElectronicsModel(BasePricePredictModel):
             history = self.train(X_train, y_train, X_val, y_val)
             
             # 모델 평가
-            metrics = self.evaluate(X_test, y_test)
+            try:
+                metrics = self.evaluate(X_test, y_test)
+                self.logger.info(f"모델 평가 결과: {metrics}")
+            except Exception as e:
+                self.logger.warning(f"모델 평가 중 오류 발생: {str(e)}")
+                metrics = {}
             
             # 모델 저장
             save_dir = os.path.join('models', 'checkpoints')
@@ -169,7 +174,7 @@ class LGElectronicsModel(BasePricePredictModel):
             }
             
         except Exception as e:
-            self.logger.error(f"모델 학습 중 오류 발생: {e}")
+            self.logger.error(f"모델 학습 중 오류 발생: {str(e)}")
             raise
 
     def train(self, X_train, y_train, X_val, y_val) -> tf.keras.callbacks.History:
@@ -509,44 +514,44 @@ class LGElectronicsModel(BasePricePredictModel):
             logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
     
-    def evaluate(self, X_test, y_test) -> Dict:
+    def evaluate(self, X_test, y_test) -> Dict[str, float]:
         """모델 평가"""
         try:
-            if not self.models:
-                raise ValueError("모델이 학습되지 않았습니다.")
+            if self.model is None:
+                raise ValueError("모델이 초기화되지 않았습니다.")
             
             # 모델 평가
-            test_loss = []
-            for model in self.models:
-                test_loss.append(model.evaluate(X_test, y_test, verbose=0))
+            test_loss, test_mae = self.model.evaluate(X_test, y_test, verbose=0)
             
             # 예측 수행
-            predictions = []
-            for model in self.models:
-                pred = model.predict(X_test)
-                predictions.append(pred)
+            y_pred = self.model.predict(X_test, verbose=0)
+            
+            # 예측값 역변환
+            y_test_original = self.scaler.inverse_transform(
+                np.concatenate([np.zeros((len(y_test), 3)), y_test.reshape(-1, 1), np.zeros((len(y_test), 16))], axis=1)
+            )[:, 3]
+            
+            y_pred_original = self.scaler.inverse_transform(
+                np.concatenate([np.zeros((len(y_pred), 3)), y_pred.reshape(-1, 1), np.zeros((len(y_pred), 16))], axis=1)
+            )[:, 3]
             
             # 평가 지표 계산
-            mse = []
-            mae = []
-            for i in range(len(self.models)):
-                mse.append(np.mean((y_test - predictions[i]) ** 2))
-                mae.append(np.mean(np.abs(y_test - predictions[i])))
-            
-            # 방향성 정확도 계산
-            direction_true = np.sign(y_test)
-            direction_pred = np.sign(predictions[0])
-            direction_accuracy = np.mean(direction_true == direction_pred)
+            mse = np.mean((y_test_original - y_pred_original) ** 2)
+            rmse = np.sqrt(mse)
+            mae = np.mean(np.abs(y_test_original - y_pred_original))
+            mape = np.mean(np.abs((y_test_original - y_pred_original) / y_test_original)) * 100
             
             return {
-                'test_loss': test_loss,
-                'mse': mse,
-                'mae': mae,
-                'direction_accuracy': direction_accuracy
+                'test_loss': float(test_loss),
+                'test_mae': float(test_mae),
+                'mse': float(mse),
+                'rmse': float(rmse),
+                'mae': float(mae),
+                'mape': float(mape)
             }
             
         except Exception as e:
-            logger.error(f"모델 평가 중 오류 발생: {str(e)}")
+            self.logger.error(f"모델 평가 중 오류 발생: {str(e)}")
             raise
     
     def get_previous_predictions(self, start_date: datetime, end_date: datetime) -> pd.DataFrame:
