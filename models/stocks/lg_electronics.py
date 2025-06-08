@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, Optional, Tuple, List
 import random
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.preprocessing import MinMaxScaler
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
@@ -317,12 +318,25 @@ class LGElectronicsModel(BasePricePredictModel):
             for model_path in model_paths:
                 if os.path.exists(model_path) and os.path.isfile(model_path):
                     self.logger.info(f"모델 파일 발견: {model_path}")
-                    self.model = tf.keras.models.load_model(
-                        model_path,
-                        custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse}
-                    )
-                    self.logger.info(f"모델이 로드되었습니다: {model_path}")
-                    return True
+                    try:
+                        self.model = tf.keras.models.load_model(
+                            model_path,
+                            custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse},
+                            compile=False  # 컴파일 옵션 비활성화
+                        )
+                        # 모델 재컴파일
+                        optimizer = tf.keras.optimizers.Adam(learning_rate=0.0003)
+                        self.model.compile(
+                            optimizer=optimizer,
+                            loss=enhanced_weighted_time_mse,
+                            metrics=['mae'],
+                            run_eagerly=True
+                        )
+                        self.logger.info(f"모델이 로드되었습니다: {model_path}")
+                        return True
+                    except Exception as e:
+                        self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+                        continue
             
             self.logger.info("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
             return False
@@ -544,12 +558,17 @@ class LGElectronicsModel(BasePricePredictModel):
             # 예측 데이터 준비
             X, _ = self.prepare_data(processed_data)
             
+            # 입력 데이터 형태 확인 및 조정
+            if len(X.shape) != 3:
+                X = np.expand_dims(X, axis=0)
+            
+            # 입력 shape 확인
+            expected_shape = (None, self.sequence_length, self.n_features)
+            if X.shape[1:] != expected_shape[1:]:
+                raise ValueError(f"입력 데이터 shape가 올바르지 않습니다. 예상: {expected_shape[1:]}, 실제: {X.shape[1:]}")
+            
             predictions = []
             current_data = X[-1:].copy()  # 데이터 복사
-            
-            # 입력 데이터 형태 확인 및 조정
-            if len(current_data.shape) != 3:
-                current_data = np.expand_dims(current_data, axis=0)
             
             # 각 영업일에 대해 예측 수행
             for target_date in business_days:
@@ -701,6 +720,39 @@ class LGElectronicsModel(BasePricePredictModel):
             )
         except Exception as e:
             self.logger.error(f"예측 결과 저장 중 오류 발생: {str(e)}")
+            raise
+
+    def prepare_data(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+        """학습 데이터 준비"""
+        try:
+            # 특성 선택
+            features = [
+                'open', 'high', 'low', 'close', 'volume',
+                'price_change', 'price_change_5d', 'price_change_20d',
+                'volume_change', 'volume_change_5d',
+                'sma_5', 'sma_20', 'sma_60',
+                'rsi', 'macd', 'macd_signal', 'macd_diff',
+                'bb_high', 'bb_low', 'bb_mid', 'roc'
+            ]
+            
+            # 특성 수 저장
+            self.n_features = len(features)
+            
+            # 데이터 정규화
+            scaler = MinMaxScaler()
+            scaled_data = scaler.fit_transform(data[features])
+            self.scaler = scaler
+            
+            # 시퀀스 데이터 생성
+            X, y = [], []
+            for i in range(len(scaled_data) - self.sequence_length):
+                X.append(scaled_data[i:(i + self.sequence_length)])
+                y.append(scaled_data[i + self.sequence_length, 3])  # 종가 예측
+            
+            return np.array(X), np.array(y)
+            
+        except Exception as e:
+            logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
             raise
 
 if __name__ == "__main__":
