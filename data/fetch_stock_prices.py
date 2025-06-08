@@ -75,7 +75,10 @@ def get_date_range():
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
-    """종목코드 정리"""
+    """종목코드 정리
+    한국거래소 API 형식 -> PyKrx 형식
+    예: 'A000120' -> '000120'
+    """
     # 'A' 접두사 제거
     code = stock_code.replace('A', '')
     # 6자리로 맞추기
