@@ -7,27 +7,31 @@ import logging
 from typing import Dict, Any, Optional, Tuple, List
 
 from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
+from database.database import DatabaseManager
 
 class LGElectronicsModel(BasePricePredictModel):
     def __init__(self):
         super().__init__(
-            stock_code='066570',
+            stock_code='A066570',
             stock_name='LG전자',
             sequence_length=20,
             batch_size=32
         )
+        self.db_manager = DatabaseManager()
         
     def load_data(self) -> pd.DataFrame:
         """LG전자 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
             query = """
-                SELECT date, open, high, low, close, volume
+                SELECT time as date, open_price as open, high_price as high, 
+                       low_price as low, close_price as close, volume
                 FROM stock_prices
-                WHERE stock_code = '066570'
-                ORDER BY date
+                WHERE stock_code = 'A066570'
+                ORDER BY time
             """
-            df = pd.read_sql(query, self.conn)
+            result = self.db_manager.execute_query(query)
+            df = pd.DataFrame(result)
             
             if df.empty:
                 raise ValueError("데이터가 비어있습니다.")
@@ -41,6 +45,8 @@ class LGElectronicsModel(BasePricePredictModel):
         except Exception as e:
             logging.error(f"데이터 로드 중 오류 발생: {str(e)}")
             raise
+        finally:
+            self.db_manager.close()
 
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """학습 데이터 준비"""
