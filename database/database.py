@@ -111,11 +111,18 @@ class DatabaseManager:
     def execute_query(self, query: str, params: tuple = None, fetch: bool = True) -> List[tuple]:
         """쿼리 실행"""
         try:
-            self.cur.execute(query, params)
+            if params is None:
+                self.cur.execute(query)
+            else:
+                self.cur.execute(query, params)
+            
             if fetch:
-                return self.cur.fetchall()
+                result = self.cur.fetchall()
+                return result if result else []
+            
             self.conn.commit()
             return []
+            
         except Exception as e:
             self.conn.rollback()
             logger.error(f"쿼리 실행 중 오류 발생: {str(e)}")
@@ -156,8 +163,25 @@ class DatabaseManager:
             """
             params = (stock_code, stock_name, prediction_date, target_date, predicted_price)
             self.execute_query(query, params, fetch=False)
+            logger.info(f"예측 결과 저장 완료: {stock_name} ({stock_code})")
         except Exception as e:
             logger.error(f"예측 결과 저장 중 오류 발생: {str(e)}")
+            raise
+
+    def save_training_history(self, stock_name: str, training_date: datetime, 
+                            loss: float, val_loss: float, mae: float, val_mae: float) -> None:
+        """학습 결과 저장"""
+        try:
+            query = """
+                INSERT INTO model_training_history 
+                (stock_name, training_date, loss, val_loss, mae, val_mae)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            params = (stock_name, training_date, loss, val_loss, mae, val_mae)
+            self.execute_query(query, params, fetch=False)
+            logger.info(f"학습 결과 저장 완료: {stock_name}")
+        except Exception as e:
+            logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
             raise
 
     def get_latest_predictions(self, stock_code: str, limit: int = 5) -> List[tuple]:

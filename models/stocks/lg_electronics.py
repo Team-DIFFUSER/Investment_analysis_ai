@@ -673,24 +673,15 @@ class LGElectronicsModel(BasePricePredictModel):
                 self.logger.warning("저장할 학습 결과가 없습니다.")
                 return
 
-            # 학습 결과를 데이터베이스에 저장
-            query = """
-                INSERT INTO model_training_history (
-                    stock_name, training_date, loss, val_loss, mae, val_mae
-                ) VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            params = (
-                self.stock_name,
-                datetime.now(),
-                float(history['loss'][-1]) if history.get('loss') else None,
-                float(history['val_loss'][-1]) if history.get('val_loss') else None,
-                float(history['mae'][-1]) if history.get('mae') else None,
-                float(history['val_mae'][-1]) if history.get('val_mae') else None
+            # 학습 결과 저장
+            self.db_manager.save_training_history(
+                stock_name=self.stock_name,
+                training_date=datetime.now(),
+                loss=float(history['loss'][-1]) if history.get('loss') else None,
+                val_loss=float(history['val_loss'][-1]) if history.get('val_loss') else None,
+                mae=float(history['mae'][-1]) if history.get('mae') else None,
+                val_mae=float(history['val_mae'][-1]) if history.get('val_mae') else None
             )
-            
-            # 쿼리 실행
-            self.db_manager.execute_query(query, params, fetch=False)
-            self.logger.info(f"{self.stock_name} 학습 결과 저장 완료")
             
         except Exception as e:
             self.logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
@@ -699,23 +690,13 @@ class LGElectronicsModel(BasePricePredictModel):
     def save_prediction(self, prediction: float, target_date: datetime) -> None:
         """예측 결과 저장"""
         try:
-            query = """
-                INSERT INTO predicted_stock_prices (
-                    stock_code, stock_name, prediction_date, target_date, predicted_price
-                ) VALUES (%s, %s, %s, %s, %s)
-            """
-            params = (
-                self.stock_code,
-                self.stock_name,
-                datetime.now(),
-                target_date,
-                float(prediction)
+            self.db_manager.save_prediction(
+                stock_code=self.stock_code,
+                stock_name=self.stock_name,
+                prediction_date=datetime.now(),
+                target_date=target_date,
+                predicted_price=float(prediction)
             )
-            
-            # 쿼리 실행
-            self.db_manager.execute_query(query, params, fetch=False)
-            self.logger.info(f"{self.stock_name} 예측 결과 저장 완료")
-            
         except Exception as e:
             self.logger.error(f"예측 결과 저장 중 오류 발생: {str(e)}")
             raise
