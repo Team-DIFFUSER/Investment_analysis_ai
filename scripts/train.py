@@ -12,7 +12,7 @@ from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.stocks.lg_electronics import LGElectronicsModel
-from database.database import Database
+from database.database import DatabaseManager
 
 # 로깅 설정
 logging.basicConfig(
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class StockTrainer:
     def __init__(self):
         """주식 학습기 초기화"""
-        self.db = Database()
+        self.db_manager = DatabaseManager()
         self.models = {}
         self.max_workers = 4  # 동시에 처리할 최대 종목 수
         
@@ -82,7 +82,7 @@ class StockTrainer:
             ORDER BY time
             """
             params = (stock_name,)
-            results = self.db.execute_query(query, params)
+            results = self.db_manager.execute_query(query, params)
             return pd.DataFrame(results)
         except Exception as e:
             logger.error(f"학습 데이터 로드 중 오류 발생: {str(e)}")
@@ -105,7 +105,7 @@ class StockTrainer:
                 history['mae'][-1],
                 history['val_mae'][-1]
             )
-            self.db.execute_query(query, params)
+            self.db_manager.execute_query(query, params)
             
             # 모델 저장
             model_path = os.path.join('models', 'checkpoints', f'{stock_name}_model.h5')
@@ -184,7 +184,7 @@ def main():
         logger.info("모델 학습을 시작합니다.")
         
         # 데이터베이스 연결
-        db = Database()
+        db_manager = DatabaseManager()
         
         # 학습기 초기화
         trainer = StockTrainer()
@@ -203,7 +203,7 @@ def main():
         raise
     finally:
         # 데이터베이스 연결 종료
-        db.close()
+        db_manager.close()
         logger.info("데이터베이스 연결이 종료되었습니다.")
 
 if __name__ == "__main__":

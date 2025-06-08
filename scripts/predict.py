@@ -12,8 +12,8 @@ from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.stocks.lg_electronics import LGElectronicsModel
+from database.database import DatabaseManager
 from utils.date_utils import get_next_five_business_days
-from database.database import Database
 
 # 로깅 설정
 logging.basicConfig(
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class StockPredictor:
     def __init__(self):
         """주식 예측기 초기화"""
-        self.db = Database()
+        self.db_manager = DatabaseManager()
         self.models = {}
         self.max_workers = 4  # 동시에 처리할 최대 종목 수
         
@@ -70,7 +70,7 @@ class StockPredictor:
         """예측 결과를 데이터베이스에 저장"""
         try:
             for pred in predictions:
-                self.db.insert_prediction(
+                self.db_manager.insert_prediction(
                     stock_name=stock_name,
                     date=pred['date'],
                     predicted_price=pred['predicted_price'],
@@ -147,7 +147,7 @@ def main():
         logger.info("주가 예측을 시작합니다.")
         
         # 데이터베이스 연결
-        db = Database()
+        db_manager = DatabaseManager()
         
         # 예측기 초기화
         predictor = StockPredictor()
@@ -166,7 +166,7 @@ def main():
         raise
     finally:
         # 데이터베이스 연결 종료
-        db.close()
+        db_manager.close()
         logger.info("데이터베이스 연결이 종료되었습니다.")
 
 if __name__ == "__main__":
