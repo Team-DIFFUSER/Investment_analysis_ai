@@ -803,6 +803,12 @@ class LGElectronicsModel(BaseStockModel):
     def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
         """데이터 전처리 강화"""
         try:
+            # Decimal 타입을 float로 변환
+            numeric_columns = ['open_price', 'high_price', 'low_price', 'close_price', 'volume']
+            for col in numeric_columns:
+                if col in data.columns:
+                    data[col] = data[col].astype(float)
+            
             # 기본 기술적 지표
             data['MA5'] = data['close_price'].rolling(window=5).mean()
             data['MA20'] = data['close_price'].rolling(window=20).mean()
