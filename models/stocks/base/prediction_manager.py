@@ -8,9 +8,13 @@ from .base_model import BaseStockModel
 class PredictionManager:
     def __init__(self):
         """예측 관리자 초기화"""
-        self.logger = logging.getLogger('models.stocks.prediction_manager')
-        self.models: Dict[str, BaseStockModel] = {}
-        self.predictions_data = {}
+        self.models = {}
+        self.predictions = {}
+        self.predictions_data = {
+            'stock_predictions': {},
+            'error_metrics': {}
+        }
+        self.logger = logging.getLogger(__name__)
         self._load_predictions_data()
         
     def _load_predictions_data(self):
@@ -21,11 +25,11 @@ class PredictionManager:
                 with open(data_path, 'r') as f:
                     self.predictions_data = json.load(f)
             else:
-                self.predictions_data = {'stock_predictions': {}}
+                self.predictions_data = {'stock_predictions': {}, 'error_metrics': {}}
                 
         except Exception as e:
             self.logger.error(f"예측 데이터 로드 중 오류 발생: {str(e)}")
-            self.predictions_data = {'stock_predictions': {}}
+            self.predictions_data = {'stock_predictions': {}, 'error_metrics': {}}
             
     def _save_predictions_data(self):
         """예측 데이터 저장"""
@@ -38,13 +42,21 @@ class PredictionManager:
         except Exception as e:
             self.logger.error(f"예측 데이터 저장 중 오류 발생: {str(e)}")
             
-    def add_model(self, model: BaseStockModel):
-        """새로운 종목 모델 추가"""
+    def add_model(self, stock_name: str, model: BaseStockModel):
+        """모델 추가"""
         try:
-            self.models[model.stock_name] = model
-            if model.stock_name not in self.predictions_data['stock_predictions']:
-                self.predictions_data['stock_predictions'][model.stock_name] = {}
-            self.logger.info(f"모델 추가 완료: {model.stock_name}")
+            if not isinstance(model, BaseStockModel):
+                raise ValueError(f"모델은 BaseStockModel을 상속받아야 합니다: {type(model)}")
+                
+            # 모델 초기화 확인
+            if not model.is_initialized():
+                self.logger.warning(f"{stock_name} 모델이 초기화되지 않았습니다. 초기화를 시도합니다.")
+                model.initialize()
+                
+            self.models[stock_name] = model
+            self.predictions_data['stock_predictions'][stock_name] = {}
+            self.predictions_data['error_metrics'][stock_name] = {}
+            self.logger.info(f"모델 추가 완료: {stock_name}")
             
         except Exception as e:
             self.logger.error(f"모델 추가 중 오류 발생: {str(e)}")
@@ -54,6 +66,11 @@ class PredictionManager:
         try:
             for stock_name, model in self.models.items():
                 self.logger.info(f"{stock_name} 예측 시작")
+                
+                # 모델 초기화 확인
+                if not model.is_initialized():
+                    self.logger.warning(f"{stock_name} 모델이 초기화되지 않았습니다. 초기화를 시도합니다.")
+                    model.initialize()
                 
                 # 예측 실행
                 predictions = model.predict_next_five_days()
