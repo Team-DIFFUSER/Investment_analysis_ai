@@ -451,34 +451,51 @@ class LGElectronicsModel(BaseStockModel):
             # 데이터 로드
             data = self.load_data()
             if data.empty:
-                self.logger.error("데이터 로드 실패")
-                return []
+                raise ValueError("데이터가 비어있습니다.")
             
             # 데이터 전처리
             processed_data = self.enhanced_preprocessing(data)
             if processed_data.empty:
-                self.logger.error("데이터 전처리 실패")
-                return []
+                raise ValueError("데이터 전처리 실패")
             
-            # 예측 데이터 준비
-            X, _ = self.prepare_data(processed_data)
-            if len(X) == 0:
-                self.logger.error("예측 데이터 준비 실패")
-                return []
+            # 학습 데이터로 스케일러 fit
+            features = ['open_price', 'high_price', 'low_price', 'close_price', 'volume', 
+                       'MA5', 'MA20', 'MA60', 'Volatility',
+                       'Volume_MA5', 'Volume_MA20', 'Price_Change',
+                       'Price_Change_MA5', 'RSI', 'MACD', 'Signal_Line']
             
-            # 마지막 시퀀스만 사용
-            last_sequence = X[-1:]
-            self.logger.info(f"예측 입력 데이터 shape: {last_sequence.shape}")
+            # 전체 데이터로 스케일러 학습
+            self.scaler.fit(processed_data[features])
+            
+            # 마지막 sequence_length일의 데이터만 사용
+            last_sequence = processed_data[features].iloc[-self.sequence_length:].values
+            last_sequence = self.scaler.transform(last_sequence)
+            
+            # 예측을 위한 입력 데이터 준비
+            X = last_sequence.reshape(1, self.sequence_length, len(features))
+            self.logger.info(f"예측 입력 데이터 shape: {X.shape}")
             
             # 예측
-            predictions = self.model.predict(last_sequence, verbose=0)
+            predictions = []
+            current_sequence = X.copy()
             
-            # 예측값 역정규화
-            predictions = self.scaler.inverse_transform(
-                np.concatenate([np.zeros((len(predictions), 3)), predictions.reshape(-1, 1), np.zeros((len(predictions), 15))], axis=1)
-            )[:, 3]
+            for _ in range(5):
+                # 다음 날 예측
+                next_day_pred = self.model.predict(current_sequence, verbose=0)[0][0]
+                predictions.append(next_day_pred)
+                
+                # 예측값을 현재 시퀀스에 추가
+                new_sequence = current_sequence[0, 1:, :]
+                new_row = np.zeros((1, len(features)))
+                new_row[0, 3] = next_day_pred  # close_price 위치에 예측값 저장
+                new_sequence = np.vstack([new_sequence, new_row])
+                current_sequence = new_sequence.reshape(1, self.sequence_length, len(features))
             
-            self.logger.info(f"예측 완료: {predictions}")
+            # 예측값 역스케일링
+            predictions = np.array(predictions).reshape(-1, 1)
+            predictions = self.scaler.inverse_transform(predictions)[:, 3]  # close_price 컬럼만 사용
+            
+            self.logger.info("예측 완료")
             return predictions.tolist()
             
         except Exception as e:
@@ -701,15 +718,26 @@ class LGElectronicsModel(BaseStockModel):
         try:
             # 프로젝트 루트 디렉토리 찾기
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
+            project_root = os.path.dirname(os.path.dirname(current_dir))
             
-            # 모델 저장 경로
+            # 모델 저장 디렉토리 설정
             model_dir = os.path.join(project_root, 'models', 'checkpoints')
-            os.makedirs(model_dir, exist_ok=True)
+            backup_dir = os.path.join(project_root, 'models', 'backup')
             
+            # 디렉토리 생성
+            os.makedirs(model_dir, exist_ok=True)
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # 모델 파일 경로
             model_path = os.path.join(model_dir, f'{self.stock_name}_model.h5')
+            backup_path = os.path.join(backup_dir, f'{self.stock_name}_model.h5')
+            
+            # 모델 저장
             self.model.save(model_path)
+            self.model.save(backup_path)
+            
             self.logger.info(f"모델 저장 완료: {model_path}")
+            self.logger.info(f"모델 백업 저장 완료: {backup_path}")
             
         except Exception as e:
             self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
