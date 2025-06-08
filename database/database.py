@@ -38,10 +38,43 @@ if missing_vars:
 
 class DatabaseManager:
     def __init__(self):
-        self.engine = None
-        self.Session = None
-        self._connect()
-    
+        """데이터베이스 연결 초기화"""
+        try:
+            self.conn = psycopg2.connect(
+                host=os.getenv('DB_HOST', 'localhost'),
+                database=os.getenv('DB_NAME', 'stock_db'),
+                user=os.getenv('DB_USER', 'postgres'),
+                password=os.getenv('DB_PASSWORD', 'postgres')
+            )
+            self.cur = self.conn.cursor()
+            self.create_tables()
+            logger.info("데이터베이스 연결 성공")
+        except Exception as e:
+            logger.error(f"데이터베이스 연결 실패: {str(e)}")
+            raise
+
+    def create_tables(self):
+        """필요한 테이블 생성"""
+        try:
+            # model_training_history 테이블 생성
+            self.cur.execute("""
+                CREATE TABLE IF NOT EXISTS model_training_history (
+                    id SERIAL PRIMARY KEY,
+                    stock_name VARCHAR(50) NOT NULL,
+                    training_date TIMESTAMP NOT NULL,
+                    loss FLOAT,
+                    val_loss FLOAT,
+                    mae FLOAT,
+                    val_mae FLOAT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.conn.commit()
+            logger.info("테이블 생성 완료")
+        except Exception as e:
+            logger.error(f"테이블 생성 중 오류 발생: {str(e)}")
+            raise
+
     def _connect(self) -> None:
         """데이터베이스 연결"""
         try:
@@ -129,46 +162,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"트랜잭션 실행 중 오류 발생: {str(e)}")
             raise
-
-    def create_tables(self) -> None:
-        """필요한 테이블 생성"""
-        queries = [
-            ("""
-            CREATE EXTENSION IF NOT EXISTS timescaledb;
-            """, None),
-            ("""
-            CREATE TABLE IF NOT EXISTS stock_prices (
-                time TIMESTAMPTZ NOT NULL,
-                stock_code VARCHAR(10) NOT NULL,
-                stock_name VARCHAR(50) NOT NULL,
-                open_price DECIMAL(10,2),
-                high_price DECIMAL(10,2),
-                low_price DECIMAL(10,2),
-                close_price DECIMAL(10,2),
-                volume BIGINT,
-                market_cap DECIMAL(20,2),
-                foreign_holding BIGINT,
-                foreign_holding_ratio DECIMAL(5,2)
-            );
-            """, None),
-            ("SELECT create_hypertable('stock_prices', 'time');", None),
-            ("CREATE INDEX IF NOT EXISTS idx_stock_prices_code ON stock_prices (stock_code, time DESC);", None),
-            ("""
-            CREATE TABLE IF NOT EXISTS predicted_stock_prices (
-                id SERIAL PRIMARY KEY,
-                stock_code VARCHAR(10) NOT NULL,
-                stock_name VARCHAR(50) NOT NULL,
-                prediction_date TIMESTAMPTZ NOT NULL,
-                target_date TIMESTAMPTZ NOT NULL,
-                predicted_price DECIMAL(10,2) NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-            """, None),
-            ("CREATE INDEX IF NOT EXISTS idx_predicted_prices_date ON predicted_stock_prices (prediction_date, target_date);", None),
-            ("CREATE INDEX IF NOT EXISTS idx_predicted_prices_stock ON predicted_stock_prices (stock_code);", None)
-        ]
-        self.execute_transaction(queries)
-        logger.info("테이블 생성 완료")
 
     def save_prediction(self, stock_code: str, stock_name: str, prediction_date: datetime, 
                        target_date: datetime, predicted_price: float) -> None:

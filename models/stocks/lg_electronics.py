@@ -146,6 +146,11 @@ class LGElectronicsModel(BasePricePredictModel):
             # 학습 데이터 준비
             X_train, y_train, X_val, y_val, X_test, y_test, _ = self.prepare_training_data()
             
+            # 데이터 shape 확인 및 조정
+            y_train = y_train.reshape(-1)
+            y_val = y_val.reshape(-1)
+            y_test = y_test.reshape(-1)
+            
             # 모델 구축
             self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
             
@@ -525,6 +530,10 @@ class LGElectronicsModel(BasePricePredictModel):
             
             # 예측 수행
             y_pred = self.model.predict(X_test, verbose=0)
+            
+            # 예측값과 실제값의 shape 확인 및 조정
+            y_test = y_test.reshape(-1)
+            y_pred = y_pred.reshape(-1)
             
             # 예측값 역변환
             y_test_original = self.scaler.inverse_transform(
