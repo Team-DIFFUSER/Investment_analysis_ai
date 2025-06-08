@@ -48,7 +48,7 @@ class LGElectronicsModel(BasePricePredictModel):
         finally:
             self.db_manager.close()
 
-    def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Any]:
         """학습 데이터 준비"""
         # 데이터 로드
         data = self.load_data()
@@ -72,13 +72,13 @@ class LGElectronicsModel(BasePricePredictModel):
         X_test = X[train_size + val_size:]
         y_test = y[train_size + val_size:]
         
-        return X_train, y_train, X_val, y_val
+        return X_train, y_train, X_val, y_val, X_test, y_test, self.scaler
 
     def train_model(self) -> Dict[str, float]:
         """모델 학습 및 평가"""
         try:
             # 학습 데이터 준비
-            X_train, y_train, X_val, y_val = self.prepare_training_data()
+            X_train, y_train, X_val, y_val, X_test, y_test, _ = self.prepare_training_data()
             
             # 모델 구축
             self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
@@ -87,7 +87,7 @@ class LGElectronicsModel(BasePricePredictModel):
             self.train(X_train, y_train, X_val, y_val)
             
             # 모델 평가
-            metrics = self.evaluate(X_val, y_val)
+            metrics = self.evaluate(X_test, y_test)
             
             # 모델 저장
             self.save_model(f'models/stocks/{self.stock_code}')
