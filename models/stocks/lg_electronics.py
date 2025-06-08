@@ -283,8 +283,8 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"예측 중 오류 발생: {str(e)}")
             raise
 
-    def load_models(self) -> bool:
-        """저장된 모델 로드"""
+    def load_model(self) -> bool:
+        """모델 로드"""
         try:
             # 프로젝트 루트 디렉토리 찾기
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -294,44 +294,25 @@ class LGElectronicsModel(BaseStockModel):
             model_path = os.path.join(project_root, 'models', 'checkpoints', f'{self.stock_name}_model.h5')
             backup_path = os.path.join(project_root, 'models', 'backup', f'{self.stock_name}_model.h5')
             
-            self.logger.info(f"현재 작업 디렉토리: {os.getcwd()}")
-            self.logger.info(f"프로젝트 루트 디렉토리: {project_root}")
-            self.logger.info(f"모델 파일 경로: {model_path}")
-            self.logger.info(f"백업 파일 경로: {backup_path}")
+            self.logger.info(f"모델 파일 검색: {model_path}")
             
-            # 모델 파일 존재 여부 확인
+            # 메인 모델 로드 시도
             if os.path.exists(model_path):
-                self.logger.info(f"모델 파일 발견: {model_path}")
-                try:
-                    # 모델 로드 시도
-                    self.model = tf.keras.models.load_model(
-                        model_path,
-                        custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse}
-                    )
-                    self.logger.info(f"모델 로드 성공: {model_path}")
-                    return True
-                except Exception as e:
-                    self.logger.error(f"모델 로드 실패: {str(e)}")
-            
-            # 백업 파일 확인
+                self.model = tf.keras.models.load_model(model_path)
+                self.logger.info("모델 로드 성공")
+                return True
+                
+            # 백업 모델 로드 시도
             if os.path.exists(backup_path):
-                self.logger.info(f"백업 모델 파일 발견: {backup_path}")
-                try:
-                    # 백업 모델 로드 시도
-                    self.model = tf.keras.models.load_model(
-                        backup_path,
-                        custom_objects={'enhanced_weighted_time_mse': enhanced_weighted_time_mse}
-                    )
-                    self.logger.info(f"백업 모델 로드 성공: {backup_path}")
-                    return True
-                except Exception as e:
-                    self.logger.error(f"백업 모델 로드 실패: {str(e)}")
-            
-            self.logger.info("저장된 모델을 찾을 수 없습니다.")
+                self.model = tf.keras.models.load_model(backup_path)
+                self.logger.info("백업 모델 로드 성공")
+                return True
+                
+            self.logger.warning("저장된 모델을 찾을 수 없습니다.")
             return False
             
         except Exception as e:
-            self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+            self.logger.error(f"모델 로드 실패: {str(e)}")
             return False
     
     def load_stock_data(self) -> pd.DataFrame:
