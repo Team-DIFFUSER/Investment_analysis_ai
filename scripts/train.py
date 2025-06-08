@@ -95,8 +95,8 @@ def main():
         db_manager = DatabaseManager()
         logger.info("데이터베이스 연결 성공")
         
-        # 학습 기간 설정 (가장 오래된 데이터부터 현재까지)
-        end_date = datetime.now().strftime('%Y-%m-%d')
+        # 학습 기간 설정
+        end_date = '2025-03-26'  # 3월 26일까지의 데이터 사용
         
         # 가장 오래된 데이터 날짜 조회
         query = """
@@ -106,11 +106,11 @@ def main():
         """
         result = db_manager.execute_query(query)
         
-        if not result or not result[0] or not result[0][0]:
+        if not result or not result[0] or not result[0]['start_date']:
             logger.error("LG전자 주가 데이터가 없습니다. 먼저 주가 데이터를 수집해주세요.")
             return
             
-        start_date = result[0][0].strftime('%Y-%m-%d')
+        start_date = result[0]['start_date'].strftime('%Y-%m-%d')
         
         logger.info(f"학습 기간: {start_date} ~ {end_date}")
         
