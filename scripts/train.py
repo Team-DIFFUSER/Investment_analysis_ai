@@ -57,19 +57,28 @@ class StockTrainer:
             history = model.train_model()
             
             # 모델 저장
-            model_dir = os.path.join('models', 'checkpoints')
+            base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+            model_dir = os.path.join(base_dir, 'models', 'checkpoints')
             model_path = os.path.join(model_dir, f'{stock_name}_model.h5')
             
             try:
-                # 디렉토리 생성 시도
-                try:
-                    os.makedirs(model_dir, exist_ok=True)
-                except Exception as e:
-                    logger.warning(f"기본 디렉토리 생성 실패: {str(e)}")
-                    # 대체 디렉토리 사용
-                    model_dir = os.path.join('models', 'temp')
-                    model_path = os.path.join(model_dir, f'{stock_name}_model.h5')
-                    os.makedirs(model_dir, exist_ok=True)
+                # 디렉토리가 존재하는지 확인
+                if os.path.exists(model_dir):
+                    if os.path.isfile(model_dir):
+                        # 디렉토리가 파일인 경우 삭제
+                        os.remove(model_dir)
+                    elif os.path.isdir(model_dir):
+                        # 디렉토리인 경우 내용물 삭제
+                        for item in os.listdir(model_dir):
+                            item_path = os.path.join(model_dir, item)
+                            if os.path.isfile(item_path):
+                                os.remove(item_path)
+                            elif os.path.isdir(item_path):
+                                import shutil
+                                shutil.rmtree(item_path)
+                
+                # 디렉토리 생성
+                os.makedirs(model_dir, exist_ok=True)
                 
                 # 모델 저장
                 model.model.save(model_path)
@@ -77,12 +86,17 @@ class StockTrainer:
                 
             except Exception as e:
                 logger.error(f"모델 저장 중 오류 발생: {str(e)}")
-                # 최후의 대체 저장 경로 사용
-                final_dir = os.path.join('models', 'backup')
-                final_path = os.path.join(final_dir, f'{stock_name}_model.h5')
-                os.makedirs(final_dir, exist_ok=True)
-                model.model.save(final_path)
-                logger.info(f"{stock_name} 모델이 백업 위치에 저장되었습니다: {final_path}")
+                # 대체 저장 경로 사용
+                backup_dir = os.path.join(base_dir, 'models', 'backup')
+                backup_path = os.path.join(backup_dir, f'{stock_name}_model.h5')
+                
+                # 백업 디렉토리 생성
+                os.makedirs(backup_dir, exist_ok=True)
+                
+                # 모델 저장
+                model.model.save(backup_path)
+                logger.info(f"{stock_name} 모델이 백업 위치에 저장되었습니다: {backup_path}")
+                model_path = backup_path
             
             return {
                 'stock_name': stock_name,
