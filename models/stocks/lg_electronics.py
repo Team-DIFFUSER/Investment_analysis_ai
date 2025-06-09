@@ -519,7 +519,11 @@ class LGElectronicsModel(BaseStockModel):
             predictions = []
             current_sequence = X.copy()
             
-            for _ in range(5):
+            # 예측 날짜 계산
+            last_date = data.index[-1]
+            prediction_dates = [last_date + timedelta(days=i+1) for i in range(5)]
+            
+            for i in range(5):
                 # 다음 날 예측
                 next_day_pred = self.model.predict(current_sequence, verbose=0)[0][0]
                 predictions.append(next_day_pred)
@@ -539,6 +543,17 @@ class LGElectronicsModel(BaseStockModel):
             
             # 100원 단위로 반올림
             predictions = np.round(predictions / 100) * 100
+            
+            # 예측 결과를 데이터베이스에 저장
+            for pred_date, pred_price in zip(prediction_dates, predictions):
+                self.db_manager.save_prediction(
+                    stock_code='A066570',
+                    stock_name='LG전자',
+                    prediction_date=datetime.now(),
+                    target_date=pred_date,
+                    predicted_price=float(pred_price)
+                )
+                self.logger.info(f"예측 결과 저장: {pred_date.strftime('%Y-%m-%d')} - {pred_price:,.0f}원")
             
             self.logger.info("예측 완료")
             return predictions.tolist()
