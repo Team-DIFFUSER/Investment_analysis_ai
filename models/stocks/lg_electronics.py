@@ -485,6 +485,40 @@ class LGElectronicsModel(BaseStockModel):
             self.logger.error(f"모델 구축 중 오류 발생: {str(e)}")
             return None
             
+    def is_holiday(self, date: datetime) -> bool:
+        """공휴일 체크"""
+        # 주말 체크
+        if date.weekday() >= 5:  # 5: 토요일, 6: 일요일
+            return True
+            
+        # 공휴일 체크 (2025년 기준)
+        holidays_2025 = [
+            '2025-01-01',  # 신정
+            '2025-02-09',  # 설날
+            '2025-02-10',  # 설날
+            '2025-02-11',  # 설날
+            '2025-03-01',  # 삼일절
+            '2025-05-05',  # 어린이날
+            '2025-05-15',  # 부처님오신날
+            '2025-06-06',  # 현충일
+            '2025-08-15',  # 광복절
+            '2025-09-28',  # 추석
+            '2025-09-29',  # 추석
+            '2025-09-30',  # 추석
+            '2025-10-03',  # 개천절
+            '2025-10-09',  # 한글날
+            '2025-12-25',  # 크리스마스
+        ]
+        
+        return date.strftime('%Y-%m-%d') in holidays_2025
+
+    def get_next_trading_day(self, date: datetime) -> datetime:
+        """다음 거래일 구하기"""
+        next_day = date + timedelta(days=1)
+        while self.is_holiday(next_day):
+            next_day += timedelta(days=1)
+        return next_day
+
     def predict_next_five_days(self) -> List[float]:
         """다음 5일 예측"""
         try:
@@ -519,9 +553,16 @@ class LGElectronicsModel(BaseStockModel):
             predictions = []
             current_sequence = X.copy()
             
-            # 예측 날짜 계산
-            last_date = data.index[-1]
-            prediction_dates = [last_date + timedelta(days=i+1) for i in range(5)]
+            # 예측 날짜 계산 (마지막 데이터 다음날부터 5거래일)
+            last_date = data.index[-1].date()
+            prediction_dates = []
+            current_date = self.get_next_trading_day(last_date)
+            
+            # 5개의 거래일 찾기
+            while len(prediction_dates) < 5:
+                if not self.is_holiday(current_date):
+                    prediction_dates.append(current_date)
+                current_date = self.get_next_trading_day(current_date)
             
             for i in range(5):
                 # 다음 날 예측
