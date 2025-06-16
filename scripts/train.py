@@ -56,13 +56,53 @@ class StockTrainer:
             # 모델 학습
             history = model.train_model()
             
-            # 학습 결과 저장
-            self.save_training_results(stock_name, history)
+            # 모델 저장
+            base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+            model_dir = os.path.join(base_dir, 'models', 'checkpoints')
+            model_path = os.path.join(model_dir, f'{stock_name}_model.h5')
+            
+            try:
+                # 디렉토리가 존재하는지 확인
+                if os.path.exists(model_dir):
+                    if os.path.isfile(model_dir):
+                        # 디렉토리가 파일인 경우 삭제
+                        os.remove(model_dir)
+                    elif os.path.isdir(model_dir):
+                        # 디렉토리인 경우 내용물 삭제
+                        for item in os.listdir(model_dir):
+                            item_path = os.path.join(model_dir, item)
+                            if os.path.isfile(item_path):
+                                os.remove(item_path)
+                            elif os.path.isdir(item_path):
+                                import shutil
+                                shutil.rmtree(item_path)
+                
+                # 디렉토리 생성
+                os.makedirs(model_dir, exist_ok=True)
+                
+                # 모델 저장
+                model.model.save(model_path)
+                logger.info(f"{stock_name} 모델이 저장되었습니다: {model_path}")
+                
+            except Exception as e:
+                logger.error(f"모델 저장 중 오류 발생: {str(e)}")
+                # 대체 저장 경로 사용
+                backup_dir = os.path.join(base_dir, 'models', 'backup')
+                backup_path = os.path.join(backup_dir, f'{stock_name}_model.h5')
+                
+                # 백업 디렉토리 생성
+                os.makedirs(backup_dir, exist_ok=True)
+                
+                # 모델 저장
+                model.model.save(backup_path)
+                logger.info(f"{stock_name} 모델이 백업 위치에 저장되었습니다: {backup_path}")
+                model_path = backup_path
             
             return {
                 'stock_name': stock_name,
                 'status': 'success',
-                'history': history
+                'history': history,
+                'model_path': model_path
             }
         except Exception as e:
             logger.error(f"{stock_name} 학습 중 오류 발생: {str(e)}")
@@ -87,35 +127,6 @@ class StockTrainer:
         except Exception as e:
             logger.error(f"학습 데이터 로드 중 오류 발생: {str(e)}")
             return None
-
-    def save_training_results(self, stock_name: str, history: Dict[str, List[float]]) -> None:
-        """학습 결과 저장"""
-        try:
-            # 학습 결과를 데이터베이스에 저장
-            query = """
-            INSERT INTO model_training_history (
-                stock_name, training_date, loss, val_loss, mae, val_mae
-            ) VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            params = (
-                stock_name,
-                datetime.now(),
-                history['loss'][-1],
-                history['val_loss'][-1],
-                history['mae'][-1],
-                history['val_mae'][-1]
-            )
-            self.db_manager.execute_query(query, params)
-            
-            # 모델 저장
-            model_path = os.path.join('models', 'checkpoints', f'{stock_name}_model.h5')
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
-            self.models[stock_name].model.save(model_path)
-            
-            logger.info(f"{stock_name} 학습 결과 저장 완료")
-        except Exception as e:
-            logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
-            raise
 
     def train_all_stocks(self) -> Dict[str, Any]:
         """모든 종목에 대한 학습 수행"""
@@ -148,6 +159,25 @@ class StockTrainer:
             success_count = sum(1 for r in results.values() if r['status'] == 'success')
             error_count = len(results) - success_count
             
+            # 성공한 종목의 학습 결과 문자열 생성
+            success_results = []
+            for stock, result in results.items():
+                if result['status'] == 'success':
+                    history = result.get('history', {})
+                    if history and isinstance(history, dict):
+                        loss = history.get('loss', [None])[-1]
+                        val_loss = history.get('val_loss', [None])[-1]
+                        loss_str = f"{loss:.4f}" if loss is not None else "N/A"
+                        val_loss_str = f"{val_loss:.4f}" if val_loss is not None else "N/A"
+                        success_results.append(f"- {stock}: loss={loss_str}, val_loss={val_loss_str}")
+                    else:
+                        success_results.append(f"- {stock}: 학습 히스토리 없음")
+            
+            # 실패한 종목 목록 생성
+            failed_stocks = [f"- {stock}: {result['error']}" 
+                           for stock, result in results.items() 
+                           if result['status'] == 'error']
+            
             report = f"""
             학습 결과 리포트
             ==============
@@ -156,11 +186,10 @@ class StockTrainer:
             실패: {error_count}
             
             실패한 종목:
-            {chr(10).join(f"- {stock}: {result['error']}" for stock, result in results.items() if result['status'] == 'error')}
+            {chr(10).join(failed_stocks) if failed_stocks else "없음"}
             
             성공한 종목의 학습 결과:
-            {chr(10).join(f"- {stock}: loss={result['history']['loss'][-1]:.4f}, val_loss={result['history']['val_loss'][-1]:.4f}" 
-                         for stock, result in results.items() if result['status'] == 'success')}
+            {chr(10).join(success_results) if success_results else "없음"}
             """
             
             logger.info(report)
@@ -177,6 +206,45 @@ class StockTrainer:
         except Exception as e:
             logger.error(f"리포트 생성 중 오류 발생: {str(e)}")
             raise
+
+def train_model():
+    """LG전자 주식 예측 모델 학습"""
+    try:
+        # 모델 초기화
+        model = LGElectronicsModel()
+        
+        # 데이터 로드 및 전처리
+        logger.info("데이터 로드 및 전처리 시작...")
+        data = model.load_data()
+        if data.empty:
+            logger.error("데이터 로드 실패")
+            return
+            
+        # 데이터 전처리
+        processed_data = model.enhanced_preprocessing(data)
+        if processed_data.empty:
+            logger.error("데이터 전처리 실패")
+            return
+            
+        # 학습 데이터 준비
+        X, y = model.prepare_data(processed_data)
+        if len(X) == 0 or len(y) == 0:
+            logger.error("학습 데이터 준비 실패")
+            return
+            
+        # 모델 학습
+        logger.info("모델 학습 시작...")
+        model.train(X, y)
+        
+        # 모델 저장
+        logger.info("모델 저장 중...")
+        model.save_model()
+        
+        logger.info("모델 학습 완료!")
+        
+    except Exception as e:
+        logger.error(f"모델 학습 중 오류 발생: {str(e)}")
+        raise
 
 def main():
     """메인 실행 함수"""
@@ -207,4 +275,4 @@ def main():
         logger.info("데이터베이스 연결이 종료되었습니다.")
 
 if __name__ == "__main__":
-    main() 
+    train_model() 

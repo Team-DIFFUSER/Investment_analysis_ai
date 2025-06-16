@@ -8,7 +8,7 @@ from contextlib import contextmanager
 import pandas as pd
 from datetime import datetime
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from dotenv import load_dotenv
 
 # 환경 변수 로드
@@ -38,10 +38,187 @@ if missing_vars:
 
 class DatabaseManager:
     def __init__(self):
-        self.engine = None
-        self.Session = None
-        self._connect()
-    
+        """데이터베이스 연결 초기화"""
+        try:
+            self.conn = psycopg2.connect(
+                host=os.getenv('DB_HOST', 'localhost'),
+                port=os.getenv('DB_PORT', '5432'),
+                database=os.getenv('DB_NAME', 'stock_db'),
+                user=os.getenv('DB_USER', 'postgres'),
+                password=os.getenv('DB_PASSWORD', 'postgres')
+            )
+            self.cur = self.conn.cursor()
+            self.create_tables()
+            logger.info("데이터베이스 연결 성공")
+        except Exception as e:
+            logger.error(f"데이터베이스 연결 실패: {str(e)}")
+            raise
+
+    def create_tables(self):
+        """필요한 테이블 생성"""
+        try:
+            # stock_prices 테이블 생성
+            self.cur.execute("""
+                CREATE TABLE IF NOT EXISTS stock_prices (
+                    time TIMESTAMPTZ NOT NULL,
+                    stock_code VARCHAR(10) NOT NULL,
+                    stock_name VARCHAR(50) NOT NULL,
+                    open_price DECIMAL(10,2),
+                    high_price DECIMAL(10,2),
+                    low_price DECIMAL(10,2),
+                    close_price DECIMAL(10,2),
+                    volume BIGINT,
+                    market_cap DECIMAL(20,2),
+                    foreign_holding BIGINT,
+                    foreign_holding_ratio DECIMAL(5,2)
+                )
+            """)
+            
+            # model_training_history 테이블 생성
+            self.cur.execute("""
+                CREATE TABLE IF NOT EXISTS model_training_history (
+                    id SERIAL PRIMARY KEY,
+                    stock_name VARCHAR(50) NOT NULL,
+                    training_date TIMESTAMP NOT NULL,
+                    loss FLOAT,
+                    val_loss FLOAT,
+                    mae FLOAT,
+                    val_mae FLOAT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # predicted_stock_prices 테이블 생성
+            self.cur.execute("""
+                CREATE TABLE IF NOT EXISTS predicted_stock_prices (
+                    id SERIAL PRIMARY KEY,
+                    stock_code VARCHAR(10) NOT NULL,
+                    stock_name VARCHAR(50) NOT NULL,
+                    prediction_date TIMESTAMPTZ NOT NULL,
+                    target_date TIMESTAMPTZ NOT NULL,
+                    predicted_price DECIMAL(10,2) NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            self.conn.commit()
+            logger.info("테이블 생성 완료")
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"테이블 생성 중 오류 발생: {str(e)}")
+            raise
+
+    def execute_query(self, query: str, params: tuple = None, fetch: bool = True) -> List[tuple]:
+        """쿼리 실행"""
+        try:
+            if params is None:
+                self.cur.execute(query)
+            else:
+                self.cur.execute(query, params)
+            
+            if fetch:
+                result = self.cur.fetchall()
+                if not result:
+                    logger.warning("쿼리 결과가 없습니다.")
+                    return []
+                return result
+            
+            self.conn.commit()
+            return []
+            
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            logger.error(f"데이터베이스 오류 발생: {str(e)}")
+            raise
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"쿼리 실행 중 오류 발생: {str(e)}")
+            raise
+
+    def execute_values_query(self, query: str, data: List[tuple]) -> None:
+        """여러 행의 데이터를 한 번에 삽입"""
+        try:
+            execute_values(self.cur, query, data)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"데이터 삽입 중 오류 발생: {str(e)}")
+            raise
+
+    def execute_transaction(self, queries: List[Tuple[str, tuple]]) -> None:
+        """트랜잭션 실행"""
+        try:
+            for query, params in queries:
+                if params is None:
+                    self.cur.execute(query)
+                else:
+                    self.cur.execute(query, params)
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"트랜잭션 실행 중 오류 발생: {str(e)}")
+            raise
+
+    def save_prediction(self, stock_code: str, stock_name: str, prediction_date: datetime, 
+                       target_date: datetime, predicted_price: float) -> None:
+        """예측 결과 저장"""
+        try:
+            query = """
+                INSERT INTO predicted_stock_prices 
+                (stock_code, stock_name, prediction_date, target_date, predicted_price)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            params = (stock_code, stock_name, prediction_date, target_date, predicted_price)
+            self.execute_query(query, params, fetch=False)
+            logger.info(f"예측 결과 저장 완료: {stock_name} ({stock_code})")
+        except Exception as e:
+            logger.error(f"예측 결과 저장 중 오류 발생: {str(e)}")
+            raise
+
+    def save_training_history(self, stock_name: str, training_date: datetime, 
+                            loss: float, val_loss: float, mae: float, val_mae: float) -> None:
+        """학습 결과 저장"""
+        try:
+            query = """
+                INSERT INTO model_training_history 
+                (stock_name, training_date, loss, val_loss, mae, val_mae)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            params = (stock_name, training_date, loss, val_loss, mae, val_mae)
+            self.execute_query(query, params, fetch=False)
+            logger.info(f"학습 결과 저장 완료: {stock_name}")
+        except Exception as e:
+            logger.error(f"학습 결과 저장 중 오류 발생: {str(e)}")
+            raise
+
+    def get_latest_predictions(self, stock_code: str, limit: int = 5) -> List[tuple]:
+        """최근 예측 결과 조회"""
+        try:
+            query = """
+                SELECT prediction_date, target_date, predicted_price
+                FROM predicted_stock_prices
+                WHERE stock_code = %s
+                ORDER BY prediction_date DESC, target_date
+                LIMIT %s
+            """
+            params = (stock_code, limit)
+            return self.execute_query(query, params)
+        except Exception as e:
+            logger.error(f"예측 결과 조회 중 오류 발생: {str(e)}")
+            raise
+
+    def close(self) -> None:
+        """데이터베이스 연결 종료"""
+        try:
+            if self.cur:
+                self.cur.close()
+            if self.conn:
+                self.conn.close()
+            logger.info("데이터베이스 연결 종료")
+        except Exception as e:
+            logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
+            raise
+
     def _connect(self) -> None:
         """데이터베이스 연결"""
         try:
@@ -90,136 +267,32 @@ class DatabaseManager:
             self._connect()
         return self.Session()
 
-    def close(self) -> None:
-        """데이터베이스 연결 종료"""
-        if self.engine:
-            self.engine.dispose()
-            logger.info("데이터베이스 연결 종료")
-
-    def execute_query(self, query: str, params: Optional[dict] = None) -> List[Dict[str, Any]]:
-        """SQL 쿼리 실행"""
-        try:
-            with self.get_db_cursor() as cursor:
-                cursor.execute(query, params or {})
-                if cursor.description:
-                    return cursor.fetchall()
-                return []
-        except Exception as e:
-            logger.error(f"쿼리 실행 중 오류 발생: {str(e)}")
-            raise
-
-    def execute_values_query(self, query: str, data: List[tuple]) -> None:
-        """여러 행의 데이터를 한 번에 삽입"""
-        try:
-            with self.get_db_cursor() as cursor:
-                execute_values(cursor, query, data)
-        except Exception as e:
-            logger.error(f"데이터 삽입 중 오류 발생: {str(e)}")
-            raise
-
-    def execute_transaction(self, queries: List[tuple]) -> None:
-        """트랜잭션 실행"""
-        try:
-            with self.get_db_cursor() as cursor:
-                for query, params in queries:
-                    if params is None:
-                        cursor.execute(query)
-                    else:
-                        cursor.execute(query, params)
-        except Exception as e:
-            logger.error(f"트랜잭션 실행 중 오류 발생: {str(e)}")
-            raise
-
-    def create_tables(self) -> None:
-        """필요한 테이블 생성"""
-        queries = [
-            ("""
-            CREATE EXTENSION IF NOT EXISTS timescaledb;
-            """, None),
-            ("""
-            CREATE TABLE IF NOT EXISTS stock_prices (
-                time TIMESTAMPTZ NOT NULL,
-                stock_code VARCHAR(10) NOT NULL,
-                stock_name VARCHAR(50) NOT NULL,
-                open_price DECIMAL(10,2),
-                high_price DECIMAL(10,2),
-                low_price DECIMAL(10,2),
-                close_price DECIMAL(10,2),
-                volume BIGINT,
-                market_cap DECIMAL(20,2),
-                foreign_holding BIGINT,
-                foreign_holding_ratio DECIMAL(5,2)
-            );
-            """, None),
-            ("SELECT create_hypertable('stock_prices', 'time');", None),
-            ("CREATE INDEX IF NOT EXISTS idx_stock_prices_code ON stock_prices (stock_code, time DESC);", None),
-            ("""
-            CREATE TABLE IF NOT EXISTS predicted_stock_prices (
-                id SERIAL PRIMARY KEY,
-                stock_code VARCHAR(10) NOT NULL,
-                stock_name VARCHAR(50) NOT NULL,
-                prediction_date TIMESTAMPTZ NOT NULL,
-                target_date TIMESTAMPTZ NOT NULL,
-                predicted_price DECIMAL(10,2) NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-            """, None),
-            ("CREATE INDEX IF NOT EXISTS idx_predicted_prices_date ON predicted_stock_prices (prediction_date, target_date);", None),
-            ("CREATE INDEX IF NOT EXISTS idx_predicted_prices_stock ON predicted_stock_prices (stock_code);", None)
-        ]
-        self.execute_transaction(queries)
-        logger.info("테이블 생성 완료")
-
-    def save_prediction(self, stock_code: str, stock_name: str, prediction_date: datetime, 
-                       target_date: datetime, predicted_price: float) -> None:
-        """예측 결과 저장"""
-        query = """
-        INSERT INTO predicted_stock_prices (
-            stock_code, stock_name, prediction_date, target_date, predicted_price
-        ) VALUES (%s, %s, %s, %s, %s)
-        """
-        params = (stock_code, stock_name, prediction_date, target_date, predicted_price)
-        self.execute_query(query, params)
-        logger.info(f"예측 결과 저장 완료: {stock_code} - {target_date}")
-
-    def get_stock_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """주가 데이터 조회"""
+    def get_stock_data(self, stock_code: str) -> pd.DataFrame:
+        """주식 데이터 조회"""
         try:
             query = """
-            SELECT 
-                time as date,
-                stock_code,
-                stock_name,
-                open_price as open,
-                high_price as high,
-                low_price as low,
-                close_price as close,
-                volume,
-                market_cap,
-                foreign_holding,
-                foreign_holding_ratio as foreign_ratio
-            FROM stock_prices
-            WHERE stock_code = %s
-            AND time BETWEEN %s AND %s
-            ORDER BY time;
+                SELECT time, open_price, high_price, low_price, close_price, volume
+                FROM stock_prices
+                WHERE stock_code = %s
+                ORDER BY time
             """
-            results = self.execute_query(query, (stock_code, start_date, end_date))
+            result = self.execute_query(query, (stock_code,))
             
-            if not results:
+            if not result:
+                logger.warning(f"데이터가 없습니다: {stock_code}")
                 return pd.DataFrame()
             
-            df = pd.DataFrame(results)
+            # DataFrame 생성 및 컬럼명 매핑
+            df = pd.DataFrame(result, columns=['time', 'open_price', 'high_price', 'low_price', 'close_price', 'volume'])
+            df['time'] = pd.to_datetime(df['time'])
+            df.set_index('time', inplace=True)
             
-            # 숫자형 컬럼 변환
-            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'market_cap', 'foreign_holding', 'foreign_ratio']
-            for col in numeric_columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
+            logger.info(f"데이터 로드 완료: {len(df)} 행")
             return df
             
         except Exception as e:
-            logger.error(f"주가 데이터 조회 중 오류 발생: {str(e)}")
-            raise
+            logger.error(f"주식 데이터 조회 중 오류 발생: {str(e)}")
+            return pd.DataFrame()
     
     def clean_stock_code(self, stock_code):
         """종목코드에서 'A' 접두사 제거"""
