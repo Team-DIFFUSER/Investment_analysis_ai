@@ -37,3 +37,4 @@ networkx==3.1  # For graph analysis
 # Additional dependencies
 python-dateutil==2.8.2
 pytz==2024.1
+openai==1.0.0

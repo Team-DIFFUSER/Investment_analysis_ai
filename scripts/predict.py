@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from models.stocks.base.prediction_manager import PredictionManager
 from models.stocks.lg_electronics import LGElectronicsModel
+from models.stocks.samsung_electronics import SamsungElectronicsModel
 
 # 로깅 설정
 logging.basicConfig(
@@ -16,8 +17,11 @@ def main():
     try:
         # 모델 초기화
         lg_model = LGElectronicsModel()
+        samsung_model = SamsungElectronicsModel()
+        
         prediction_manager = PredictionManager()
         prediction_manager.add_model('LG전자', lg_model)
+        prediction_manager.add_model('삼성전자', samsung_model)
         
         # 일일 예측 실행
         logger.info("일일 예측 시작")

@@ -12,6 +12,7 @@ from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.stocks.lg_electronics import LGElectronicsModel
+from models.stocks.samsung_electronics import SamsungElectronicsModel
 from database.database import DatabaseManager
 
 # 로깅 설정
@@ -34,7 +35,7 @@ class StockTrainer:
             # 여기에 새로운 종목 모델들을 추가
             self.models = {
                 'LG전자': LGElectronicsModel(),
-                # '삼성전자': SamsungElectronicsModel(),
+                '삼성전자': SamsungElectronicsModel(),
                 # 'SK하이닉스': SKHynixModel(),
                 # ... 다른 종목들 추가
             }
@@ -207,14 +208,22 @@ class StockTrainer:
             logger.error(f"리포트 생성 중 오류 발생: {str(e)}")
             raise
 
-def train_model():
-    """LG전자 주식 예측 모델 학습"""
+def train_model(model_class=None):
+    """주식 예측 모델 학습
+    
+    Args:
+        model_class: 학습할 모델 클래스 (예: LGElectronicsModel, SamsungElectronicsModel)
+    """
     try:
+        if model_class is None:
+            logger.error("모델 클래스가 지정되지 않았습니다.")
+            return
+            
         # 모델 초기화
-        model = LGElectronicsModel()
+        model = model_class()
         
         # 데이터 로드 및 전처리
-        logger.info("데이터 로드 및 전처리 시작...")
+        logger.info(f"{model.stock_name} 데이터 로드 및 전처리 시작...")
         data = model.load_data()
         if data.empty:
             logger.error("데이터 로드 실패")
@@ -233,14 +242,14 @@ def train_model():
             return
             
         # 모델 학습
-        logger.info("모델 학습 시작...")
+        logger.info(f"{model.stock_name} 모델 학습 시작...")
         model.train(X, y)
         
         # 모델 저장
         logger.info("모델 저장 중...")
         model.save_model()
         
-        logger.info("모델 학습 완료!")
+        logger.info(f"{model.stock_name} 모델 학습 완료!")
         
     except Exception as e:
         logger.error(f"모델 학습 중 오류 발생: {str(e)}")
@@ -275,4 +284,9 @@ def main():
         logger.info("데이터베이스 연결이 종료되었습니다.")
 
 if __name__ == "__main__":
-    train_model() 
+    # 단일 모델 테스트용
+    # train_model(LGElectronicsModel)  # LG전자
+    # train_model(SamsungElectronicsModel)  # 삼성전자
+    
+    # 모든 모델 학습
+    main() 
