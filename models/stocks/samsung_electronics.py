@@ -294,7 +294,7 @@ class SamsungElectronicsModel(BaseStockModel):
             current_dir = os.path.dirname(os.path.abspath(__file__))
             project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
             
-            # 모델 파일 경로
+            # 모델 파일 경로 (프로젝트 내부)
             model_path = os.path.join(project_root, 'models', 'checkpoints', f'{self.stock_name}_model.h5')
             self.logger.info(f"모델 파일 검색: {model_path}")
             
@@ -305,8 +305,22 @@ class SamsungElectronicsModel(BaseStockModel):
                 return self.model
             else:
                 self.logger.warning(f"모델 파일을 찾을 수 없습니다: {model_path}")
-                self.model = None
-                return None
+                
+                # 임시 디렉토리에서 모델 찾기
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                temp_model_path = os.path.join(temp_dir, f'{self.stock_name}_model.h5')
+                self.logger.info(f"임시 디렉토리에서 모델 검색: {temp_model_path}")
+                
+                if os.path.exists(temp_model_path):
+                    self.logger.info(f"임시 디렉토리에서 모델 파일 발견: {temp_model_path}")
+                    self.model = tf.keras.models.load_model(temp_model_path)
+                    self.logger.info("임시 디렉토리에서 모델 로드 성공")
+                    return self.model
+                else:
+                    self.logger.warning(f"임시 디렉토리에서도 모델 파일을 찾을 수 없습니다: {temp_model_path}")
+                    self.model = None
+                    return None
                 
         except Exception as e:
             self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
@@ -854,11 +868,11 @@ class SamsungElectronicsModel(BaseStockModel):
     def save_model(self):
         """모델 저장"""
         try:
-            # 프로젝트 루트 디렉토리 찾기
+            # 현재 프로젝트 디렉토리 찾기
             current_dir = os.path.dirname(os.path.abspath(__file__))
             project_root = os.path.dirname(os.path.dirname(current_dir))
             
-            # 모델 저장 디렉토리 설정
+            # 모델 저장 디렉토리 설정 (프로젝트 내부)
             model_dir = os.path.join(project_root, 'models', 'checkpoints')
             backup_dir = os.path.join(project_root, 'models', 'backup')
             
@@ -879,7 +893,16 @@ class SamsungElectronicsModel(BaseStockModel):
             
         except Exception as e:
             self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
-            raise
+            # 권한 오류인 경우 임시 디렉토리에 저장
+            try:
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                temp_model_path = os.path.join(temp_dir, f'{self.stock_name}_model.h5')
+                self.model.save(temp_model_path)
+                self.logger.info(f"임시 디렉토리에 모델 저장 완료: {temp_model_path}")
+            except Exception as temp_e:
+                self.logger.error(f"임시 저장도 실패: {str(temp_e)}")
+                raise
 
     def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
         """데이터 전처리 강화"""
