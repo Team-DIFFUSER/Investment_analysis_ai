@@ -299,15 +299,17 @@ class HyundaiMotorModel(BaseStockModel):
             
             if os.path.exists(model_path):
                 self.logger.info(f"모델 파일 발견: {model_path}")
-                model = tf.keras.models.load_model(model_path)
+                self.model = tf.keras.models.load_model(model_path)
                 self.logger.info("모델 로드 성공")
-                return model
+                return self.model
             else:
                 self.logger.warning(f"모델 파일을 찾을 수 없습니다: {model_path}")
+                self.model = None
                 return None
                 
         except Exception as e:
             self.logger.error(f"모델 로드 중 오류 발생: {str(e)}")
+            self.model = None
             return None
     
     def load_stock_data(self) -> pd.DataFrame:
