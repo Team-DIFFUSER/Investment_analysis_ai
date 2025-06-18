@@ -526,10 +526,15 @@ class SamsungElectronicsModel(BaseStockModel):
                 raise ValueError("데이터 전처리 실패")
             
             # 학습 데이터로 스케일러 fit
-            features = ['open_price', 'high_price', 'low_price', 'close_price', 'volume', 
-                       'MA5', 'MA20', 'MA60', 'Volatility',
-                       'Volume_MA5', 'Volume_MA20', 'Price_Change',
-                       'Price_Change_MA5', 'RSI', 'MACD']
+            features = [
+                'open_price', 'high_price', 'low_price', 'close_price', 'volume',
+                'MA5', 'MA20', 'MA60', 'MA120',
+                'BB_middle', 'BB_std', 'BB_upper', 'BB_lower',
+                'RSI', 'MACD', 'Signal_Line', 'MACD_Histogram',
+                'Stoch_K', 'Stoch_D', 'TR', 'ATR',
+                'Volume_MA5', 'Volume_MA20', 'Volume_Ratio',
+                'Price_Change', 'Price_Change_MA5', 'Price_Change_MA20',
+                'Volatility', 'Volatility_MA5', 'ROC', 'Momentum', 'ADX']
             
             # 전체 데이터로 스케일러 학습
             self.scaler.fit(processed_data[features])
