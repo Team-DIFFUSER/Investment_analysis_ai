@@ -776,10 +776,23 @@ class SKHynixModel(BaseStockModel):
             self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
             return np.array([]), np.array([])
 
-    def train(self, X: np.ndarray, y: np.ndarray) -> None:
+    def train(self, X: np.ndarray = None, y: np.ndarray = None) -> None:
         """모델 학습"""
         try:
             self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
+            
+            # X, y가 제공되지 않으면 데이터 로드
+            if X is None or y is None:
+                # 데이터 로드
+                data = self.load_data()
+                self.logger.info(f"데이터 로드 완료: {len(data)} 행")
+                
+                # 데이터 전처리
+                processed_data = self.enhanced_preprocessing(data)
+                
+                # 학습 데이터 준비
+                X, y = self.prepare_data(processed_data)
+                self.logger.info(f"데이터 준비 완료: X shape={X.shape}, y shape={y.shape}")
             
             # 모델이 없으면 새로 생성
             if self.model is None:
