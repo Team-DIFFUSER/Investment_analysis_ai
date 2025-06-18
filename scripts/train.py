@@ -43,16 +43,27 @@ def optimize_tensorflow():
         except RuntimeError as e:
             logger.warning(f"GPU 메모리 설정 실패: {e}")
     
-    # Mixed Precision 활성화 (속도 향상)
+    # Mixed Precision 활성화 (호환성 개선)
     try:
-        tf.keras.mixed_precision.set_global_policy('mixed_float16')
-        logger.info("Mixed Precision 활성화 완료")
+        # 더 안전한 Mixed Precision 설정
+        policy = tf.keras.mixed_precision.Policy('mixed_float16')
+        tf.keras.mixed_precision.set_global_policy(policy)
+        logger.info("Mixed Precision 활성화 완료 (호환성 개선)")
     except Exception as e:
         logger.warning(f"Mixed Precision 설정 실패: {e}")
+        # 실패시 float32로 폴백
+        tf.keras.mixed_precision.set_global_policy('float32')
+        logger.info("Mixed Precision 비활성화 (float32 사용)")
     
-    # XLA JIT 컴파일 활성화
-    tf.config.optimizer.set_jit(True)
-    logger.info("XLA JIT 컴파일 활성화 완료")
+    # XLA JIT 컴파일 활성화 (조건부)
+    try:
+        # XLA를 더 안전하게 활성화
+        tf.config.optimizer.set_jit(True)
+        logger.info("XLA JIT 컴파일 활성화 완료")
+    except Exception as e:
+        logger.warning(f"XLA JIT 컴파일 설정 실패: {e}")
+        tf.config.optimizer.set_jit(False)
+        logger.info("XLA JIT 컴파일 비활성화")
 
 class StockTrainer:
     def __init__(self):
