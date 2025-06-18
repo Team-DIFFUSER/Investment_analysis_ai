@@ -141,6 +141,8 @@ class RecommendationModelTrainer:
                 for batch_X, batch_y in train_loader:
                     optimizer.zero_grad()
                     outputs = self.model(batch_X)
+                    # batch_y를 outputs와 같은 차원으로 변환
+                    batch_y = batch_y.unsqueeze(1)
                     loss = F.mse_loss(outputs, batch_y)
                     loss.backward()
                     optimizer.step()
@@ -152,6 +154,8 @@ class RecommendationModelTrainer:
                 with torch.no_grad():
                     for batch_X, batch_y in val_loader:
                         outputs = self.model(batch_X)
+                        # batch_y를 outputs와 같은 차원으로 변환
+                        batch_y = batch_y.unsqueeze(1)
                         val_loss += F.mse_loss(outputs, batch_y).item()
                 
                 # 평균 손실 계산

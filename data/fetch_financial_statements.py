@@ -55,7 +55,7 @@ def create_financial_statements_table():
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         
-        # 테이블 생성 쿼리
+        # 테이블 생성 쿼리 (한국시간으로 설정)
         create_table_query = """
         CREATE TABLE IF NOT EXISTS financial_statements (
             id SERIAL PRIMARY KEY,
@@ -69,7 +69,7 @@ def create_financial_statements_table():
             bus_pro NUMERIC,
             cup_nga NUMERIC,
             cap NUMERIC,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
         );
         """
         
@@ -134,24 +134,25 @@ def save_financial_statement(data):
         insert_query = """
         INSERT INTO financial_statements (
             stock_code, per, roe, pbr, ev, bps, 
-            sale_amt, bus_pro, cup_nga, cap
+            sale_amt, bus_pro, cup_nga, cap, created_at
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+            (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
         );
         """
         
-        # 문자열 데이터를 숫자로 변환
+        # 문자열 데이터를 숫자로 변환하고 NULL 값을 0으로 처리
         values = (
             data['stk_cd'],
-            float(data['per']) if data.get('per') else None,
-            float(data['roe']) if data.get('roe') else None,
-            float(data['pbr']) if data.get('pbr') else None,
-            float(data['ev']) if data.get('ev') else None,
-            float(data['bps']) if data.get('bps') else None,
-            float(data['sale_amt']) if data.get('sale_amt') else None,
-            float(data['bus_pro']) if data.get('bus_pro') else None,
-            float(data['cup_nga']) if data.get('cup_nga') else None,
-            float(data['cap']) if data.get('cap') else None
+            float(data['per']) if data.get('per') and data['per'] != '' else 0.0,
+            float(data['roe']) if data.get('roe') and data['roe'] != '' else 0.0,
+            float(data['pbr']) if data.get('pbr') and data['pbr'] != '' else 0.0,
+            float(data['ev']) if data.get('ev') and data['ev'] != '' else 0.0,
+            float(data['bps']) if data.get('bps') and data['bps'] != '' else 0.0,
+            float(data['sale_amt']) if data.get('sale_amt') and data['sale_amt'] != '' else 0.0,
+            float(data['bus_pro']) if data.get('bus_pro') and data['bus_pro'] != '' else 0.0,
+            float(data['cup_nga']) if data.get('cup_nga') and data['cup_nga'] != '' else 0.0,
+            float(data['cap']) if data.get('cap') and data['cap'] != '' else 0.0
         )
         
         cur.execute(insert_query, values)

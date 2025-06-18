@@ -4,12 +4,16 @@ from datetime import datetime
 from typing import Dict, Any
 import sys
 import argparse
+import numpy as np
 
-from ..data_processing.recommendation_data_loader import RecommendationDataLoader
-from ..data_processing.recommendation_data_processor import RecommendationDataProcessor
-from ..mlp_model.recommendation_mlp_model import RecommendationMLP, RecommendationModelTrainer, RecommendationModelEvaluator
-from ..evaluation_utils.recommendation_config import RecommendationConfig
-from ..evaluation_utils.recommendation_evaluation import RecommendationEvaluator
+# 상위 디렉토리 경로 추가
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from data_processing.recommendation_data_loader import RecommendationDataLoader
+from data_processing.recommendation_data_processor import RecommendationDataProcessor
+from mlp_model.recommendation_mlp_model import RecommendationMLP, RecommendationModelTrainer, RecommendationModelEvaluator
+from evaluation_utils.recommendation_config import RecommendationConfig
+from evaluation_utils.recommendation_evaluation import RecommendationEvaluator
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
@@ -89,6 +93,20 @@ def train_model(user_id: str, investment_type: str = '위험중립형') -> Dict[
         # 데이터 분할 (train/val/test = 7:2:1)
         X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
         X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=1/3, random_state=42)
+        
+        # nan/inf를 0으로 대체 (train/val/test 전체)
+        X_train = np.nan_to_num(X_train, nan=0.0, posinf=0.0, neginf=0.0)
+        y_train = np.nan_to_num(y_train, nan=0.0, posinf=0.0, neginf=0.0)
+        X_val = np.nan_to_num(X_val, nan=0.0, posinf=0.0, neginf=0.0)
+        y_val = np.nan_to_num(y_val, nan=0.0, posinf=0.0, neginf=0.0)
+        X_test = np.nan_to_num(X_test, nan=0.0, posinf=0.0, neginf=0.0)
+        y_test = np.nan_to_num(y_test, nan=0.0, posinf=0.0, neginf=0.0)
+        print('X_train contains nan:', np.isnan(X_train).any())
+        print('y_train contains nan:', np.isnan(y_train).any())
+        print('X_val contains nan:', np.isnan(X_val).any())
+        print('y_val contains nan:', np.isnan(y_val).any())
+        print('X_test contains nan:', np.isnan(X_test).any())
+        print('y_test contains nan:', np.isnan(y_test).any())
         
         train_dataset = TensorDataset(
             torch.tensor(X_train, dtype=torch.float32),
