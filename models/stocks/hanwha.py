@@ -852,7 +852,7 @@ class HanwhaAerospaceModel(BaseStockModel):
             self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
             raise
 
-    def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
+    def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
         """데이터 전처리 강화"""
         try:
             # Decimal 타입을 float로 변환
