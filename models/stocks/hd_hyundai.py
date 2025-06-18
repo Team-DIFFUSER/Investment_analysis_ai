@@ -695,8 +695,8 @@ class HDHyundaiModel(BaseStockModel):
         """예측 결과 저장"""
         try:
             self.db_manager.save_prediction(
-                stock_code='A329180',
-                stock_name='HD현대중공업',
+                stock_code=self.symbol,
+                stock_name=self.stock_name,
                 prediction_date=datetime.now(),
                 target_date=target_date,
                 predicted_price=float(prediction)
@@ -850,13 +850,7 @@ class HDHyundaiModel(BaseStockModel):
             
         except Exception as e:
             self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
-            raise
-
-    def is_initialized(self) -> bool:
-        """모델 초기화 상태 확인"""
-        return self._initialized and self.model is not None
-        
-    def initialize(self):
+            raisedef initialize(self):
         """모델 초기화"""
         try:
             # GPU 메모리 설정

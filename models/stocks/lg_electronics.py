@@ -277,7 +277,7 @@ class LGElectronicsModel(BaseStockModel):
             
             # 예측 결과 저장
             self.db_manager.save_prediction(
-                stock_code=self.stock_code,
+                stock_code=self.symbol,
                 stock_name=self.stock_name,
                 prediction_date=datetime.now(),
                 target_date=datetime.now() + timedelta(days=1),
@@ -587,8 +587,8 @@ class LGElectronicsModel(BaseStockModel):
             # 예측 결과를 데이터베이스에 저장
             for pred_date, pred_price in zip(prediction_dates, predictions):
                 self.db_manager.save_prediction(
-                    stock_code='A066570',
-                    stock_name='LG전자',
+                    stock_code=self.symbol,
+                    stock_name=self.stock_name,
                     prediction_date=datetime.now(),
                     target_date=pred_date,
                     predicted_price=float(pred_price)
@@ -643,7 +643,7 @@ class LGElectronicsModel(BaseStockModel):
             
             with self.db_manager.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(query, (self.stock_code, start_date, end_date))
+                    cur.execute(query, (self.symbol, start_date, end_date))
                     results = cur.fetchall()
             
             if not results:
@@ -695,7 +695,7 @@ class LGElectronicsModel(BaseStockModel):
         """예측 결과 저장"""
         try:
             self.db_manager.save_prediction(
-                stock_code=self.stock_code,
+                stock_code=self.symbol,
                 stock_name=self.stock_name,
                 prediction_date=datetime.now(),
                 target_date=target_date,
@@ -850,13 +850,7 @@ class LGElectronicsModel(BaseStockModel):
             
         except Exception as e:
             self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
-            raise
-
-    def is_initialized(self) -> bool:
-        """모델 초기화 상태 확인"""
-        return self._initialized and self.model is not None
-        
-    def initialize(self):
+            raisedef initialize(self):
         """모델 초기화"""
         try:
             # GPU 메모리 설정
