@@ -207,7 +207,7 @@ class SamsungElectronicsModel(BaseStockModel):
                 X_train, y_train,
                 validation_data=(X_val, y_val),
                 epochs=100,  # 에포크 수 감소
-                batch_size=64,  # 배치 사이즈 증가 (속도 향상)
+                batch_size=128,  # 배치 사이즈 대폭 증가 (속도 향상)
                 callbacks=callbacks,
                 verbose=1,
                 shuffle=True  # 데이터 셔플링으로 학습 안정성 향상
