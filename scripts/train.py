@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # TensorFlow 성능 최적화
 def optimize_tensorflow():
-    """TensorFlow 성능 최적화 설정"""
+    """TensorFlow 성능 최적화 설정 (호환성 우선)"""
     # GPU 메모리 증가 허용
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
@@ -43,27 +43,35 @@ def optimize_tensorflow():
         except RuntimeError as e:
             logger.warning(f"GPU 메모리 설정 실패: {e}")
     
-    # Mixed Precision 활성화 (호환성 개선)
+    # Mixed Precision 완전 비활성화 (호환성 문제 해결)
     try:
-        # 더 안전한 Mixed Precision 설정
-        policy = tf.keras.mixed_precision.Policy('mixed_float16')
-        tf.keras.mixed_precision.set_global_policy(policy)
-        logger.info("Mixed Precision 활성화 완료 (호환성 개선)")
+        tf.keras.mixed_precision.set_global_policy('float32')
+        logger.info("Mixed Precision 비활성화 완료 (float32 사용)")
     except Exception as e:
         logger.warning(f"Mixed Precision 설정 실패: {e}")
-        # 실패시 float32로 폴백
-        tf.keras.mixed_precision.set_global_policy('float32')
-        logger.info("Mixed Precision 비활성화 (float32 사용)")
     
-    # XLA JIT 컴파일 활성화 (조건부)
-    try:
-        # XLA를 더 안전하게 활성화
-        tf.config.optimizer.set_jit(True)
-        logger.info("XLA JIT 컴파일 활성화 완료")
-    except Exception as e:
-        logger.warning(f"XLA JIT 컴파일 설정 실패: {e}")
-        tf.config.optimizer.set_jit(False)
-        logger.info("XLA JIT 컴파일 비활성화")
+    # XLA JIT 컴파일 완전 비활성화 (호환성 문제 해결)
+    tf.config.optimizer.set_jit(False)
+    logger.info("XLA JIT 컴파일 비활성화 완료")
+    
+    # 다른 성능 최적화 설정
+    tf.config.optimizer.set_experimental_options({
+        "layout_optimizer": True,
+        "constant_folding": True,
+        "shape_optimization": True,
+        "remapping": True,
+        "arithmetic_optimization": True,
+        "dependency_optimization": True,
+        "loop_optimization": True,
+        "function_optimization": True,
+        "debug_stripper": True,
+        "disable_model_pruning": False,
+        "scoped_allocator_optimization": True,
+        "pin_to_host_optimization": True,
+        "implementation_selector": True,
+        "auto_mixed_precision": False
+    })
+    logger.info("TensorFlow 최적화 설정 완료")
 
 class StockTrainer:
     def __init__(self):
@@ -98,9 +106,9 @@ class StockTrainer:
         try:
             logger.info(f"{stock_name} 학습 시작")
             
-            # 모델의 하이퍼파라미터 최적화
-            model.batch_size = 64  # 배치 크기 증가
-            model.sequence_length = 15  # 시퀀스 길이 감소 (속도 향상)
+            # 모델의 하이퍼파라미터 최적화 (Mixed Precision 대신 배치 크기로 보완)
+            model.batch_size = 128  # 배치 크기 대폭 증가 (속도 향상)
+            model.sequence_length = 20  # 시퀀스 길이 증가 (정확도 향상)
             
             # 학습 데이터 로드
             training_data = self.load_training_data(stock_name)

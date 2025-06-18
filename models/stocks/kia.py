@@ -207,7 +207,7 @@ class KiaModel(BaseStockModel):
                 X_train, y_train,
                 validation_data=(X_val, y_val),
                 epochs=100,  # 에포크 수 증가
-                batch_size=64,  # 배치 사이즈 감소
+                batch_size=128,  # 배치 사이즈 감소
                 callbacks=callbacks,
                 verbose=0
             )
@@ -799,7 +799,7 @@ class KiaModel(BaseStockModel):
             history = self.model.fit(
                 X, y,
                 epochs=100,
-                batch_size=64,
+                batch_size=128,
                 validation_split=0.2,
                 callbacks=[
                     tf.keras.callbacks.EarlyStopping(
