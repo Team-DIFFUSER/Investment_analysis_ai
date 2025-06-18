@@ -15,10 +15,9 @@ from models.stocks.lg_electronics import LGElectronicsModel
 from models.stocks.samsung_electronics import SamsungElectronicsModel
 from models.stocks.sk_hynix import SKHynixModel
 from models.stocks.samsung_biologics import SamsungBiologicsModel
-from models.stocks.lg_energy_solution import LGEnergySolutionModel
-from models.stocks.hanwha_aerospace import HanwhaAerospaceModel
+from models.stocks.lg_chemical import LGEnergySolutionModel
+from models.stocks.hanwha import HanwhaAerospaceModel
 from models.stocks.hyundai_motor import HyundaiMotorModel
-from models.stocks.kb_financial import KBFinancialModel
 from models.stocks.kia import KiaModel
 from models.stocks.hd_hyundai import HDHyundaiModel
 from database.database import DatabaseManager
@@ -46,10 +45,9 @@ class StockTrainer:
                 '삼성전자': SamsungElectronicsModel(),
                 'SK하이닉스': SKHynixModel(),
                 '삼성바이오로직스': SamsungBiologicsModel(),
-                'LG에너지솔루션': LGEnergySolutionModel(),
-                '한원에어로스페이스': HanwhaAerospaceModel(),
-                '현대자동차': HyundaiMotorModel(),
-                'KB금융': KBFinancialModel(),
+                'LG화학': LGEnergySolutionModel(),
+                '한화': HanwhaAerospaceModel(),
+                '현대차': HyundaiMotorModel(),
                 '기아': KiaModel(),
                 'HD현대': HDHyundaiModel(),
                 # ... 다른 종목들 추가

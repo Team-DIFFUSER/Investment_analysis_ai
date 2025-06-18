@@ -7,10 +7,9 @@ from models.stocks.lg_electronics import LGElectronicsModel
 from models.stocks.samsung_electronics import SamsungElectronicsModel
 from models.stocks.sk_hynix import SKHynixModel
 from models.stocks.samsung_biologics import SamsungBiologicsModel
-from models.stocks.lg_energy_solution import LGEnergySolutionModel
-from models.stocks.hanwha_aerospace import HanwhaAerospaceModel
+from models.stocks.lg_chemical import LGEnergySolutionModel
+from models.stocks.hanwha import HanwhaAerospaceModel
 from models.stocks.hyundai_motor import HyundaiMotorModel
-from models.stocks.kb_financial import KBFinancialModel
 from models.stocks.kia import KiaModel
 from models.stocks.hd_hyundai import HDHyundaiModel
 
@@ -31,7 +30,6 @@ def main():
         lg_energy_model = LGEnergySolutionModel()
         hanwha_aerospace_model = HanwhaAerospaceModel()
         hyundai_motor_model = HyundaiMotorModel()
-        kb_financial_model = KBFinancialModel()
         kia_model = KiaModel()
         hd_hyundai_model = HDHyundaiModel()
         
@@ -40,10 +38,9 @@ def main():
         prediction_manager.add_model('삼성전자', samsung_model)
         prediction_manager.add_model('SK하이닉스', sk_hynix_model)
         prediction_manager.add_model('삼성바이오로직스', samsung_biologics_model)
-        prediction_manager.add_model('LG에너지솔루션', lg_energy_model)
-        prediction_manager.add_model('한화에어로스페이스', hanwha_aerospace_model)
-        prediction_manager.add_model('현대자동차', hyundai_motor_model)
-        prediction_manager.add_model('KB금융', kb_financial_model)
+        prediction_manager.add_model('LG화학', lg_energy_model)
+        prediction_manager.add_model('한화', hanwha_aerospace_model)
+        prediction_manager.add_model('현대차', hyundai_motor_model)
         prediction_manager.add_model('기아', kia_model)
         prediction_manager.add_model('HD현대중공업', hd_hyundai_model)
         

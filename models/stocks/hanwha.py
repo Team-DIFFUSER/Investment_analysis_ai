@@ -74,7 +74,7 @@ random.seed(SEED)
 class HanwhaAerospaceModel(BaseStockModel):
     def __init__(self):
         """한화에어로스페이스 주가 예측 모델 초기화"""
-        super().__init__('한화에어로스페이스', '012450.KS')
+        super().__init__('한화', '000880.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -100,7 +100,7 @@ class HanwhaAerospaceModel(BaseStockModel):
         """한화에어로스페이스 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            data = self.db_manager.get_stock_data('A012450')  # 한화에어로스페이스 종목코드
+            data = self.db_manager.get_stock_data('A000880')  # 한화 종목코드
             
             if data.empty:
                 self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")
@@ -278,8 +278,8 @@ class HanwhaAerospaceModel(BaseStockModel):
             
             # 예측 결과 저장
             self.db_manager.save_prediction(
-                stock_code='A012450',
-                stock_name='한화에어로스페이스',
+                stock_code='A000880',
+                stock_name='한화',
                 prediction_date=datetime.now(),
                 target_date=datetime.now() + timedelta(days=1),
                 predicted_price=float(prediction)
@@ -588,8 +588,8 @@ class HanwhaAerospaceModel(BaseStockModel):
             # 예측 결과를 데이터베이스에 저장
             for pred_date, pred_price in zip(prediction_dates, predictions):
                 self.db_manager.save_prediction(
-                    stock_code='A012450',
-                    stock_name='한화에어로스페이스',
+                    stock_code='A000880',
+                    stock_name='한화',
                     prediction_date=datetime.now(),
                     target_date=pred_date,
                     predicted_price=float(pred_price)
@@ -696,8 +696,8 @@ class HanwhaAerospaceModel(BaseStockModel):
         """예측 결과 저장"""
         try:
             self.db_manager.save_prediction(
-                stock_code='A012450',
-                stock_name='한화에어로스페이스',
+                stock_code='A000880',
+                stock_name='한화',
                 prediction_date=datetime.now(),
                 target_date=target_date,
                 predicted_price=float(prediction)
