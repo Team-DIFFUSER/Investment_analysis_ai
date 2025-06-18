@@ -850,25 +850,6 @@ class SamsungBiologicsModel(BaseStockModel):
             
         except Exception as e:
             self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
-            raisedef initialize(self):
-        """모델 초기화"""
-        try:
-            # GPU 메모리 설정
-            self._setup_gpu()
-            
-            # 모델 로드
-            if not self.load_model():
-                self.logger.warning("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
-                self.train_model()
-                if not self.load_model():
-                    raise ValueError("모델 학습 후에도 모델을 로드할 수 없습니다.")
-            
-            self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
-            self._initialized = True
-            
-        except Exception as e:
-            self.logger.error(f"모델 초기화 중 오류 발생: {str(e)}")
-            self._initialized = False
             raise
 
     def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
