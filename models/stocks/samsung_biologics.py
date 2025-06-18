@@ -407,11 +407,11 @@ class SamsungBiologicsModel(BaseStockModel):
             # 입력 레이어
             inputs = layers.Input(shape=input_shape)
             
-            # 첫 번째 LSTM 레이어
+            # 첫 번째 LSTM 레이어 (recurrent_dropout 제거)
             x = layers.LSTM(256, input_shape=input_shape, return_sequences=True,
                           kernel_initializer='glorot_uniform',
                           recurrent_initializer='orthogonal',
-                          recurrent_dropout=0.1)(inputs)  # recurrent_dropout 추가
+                          )(inputs)  # recurrent_dropout 추가
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.4)(x)  # dropout 비율 증가
             
@@ -423,19 +423,19 @@ class SamsungBiologicsModel(BaseStockModel):
             x = layers.Add()([x, attention])
             x = layers.LayerNormalization()(x)
             
-            # 두 번째 LSTM 레이어
+            # 두 번째 LSTM 레이어 (recurrent_dropout 제거)
             x = layers.LSTM(128, return_sequences=True,
                           kernel_initializer='glorot_uniform',
                           recurrent_initializer='orthogonal',
-                          recurrent_dropout=0.1)(x)
+                          )(x)
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.4)(x)
             
-            # 세 번째 LSTM 레이어
+            # 세 번째 LSTM 레이어 (recurrent_dropout 제거)
             x = layers.LSTM(64, return_sequences=False,
                           kernel_initializer='glorot_uniform',
                           recurrent_initializer='orthogonal',
-                          recurrent_dropout=0.1)(x)
+                          )(x)
             x = layers.BatchNormalization()(x)
             x = layers.Dropout(0.4)(x)
             
@@ -453,12 +453,12 @@ class SamsungBiologicsModel(BaseStockModel):
             x = layers.Dropout(0.4)(x)
             
             # 출력 레이어
-            outputs = layers.Dense(1)(x)
+            outputs = layers.Dense(1, dtype='float32')(x)
             
             # 모델 생성
             model = tf.keras.Model(inputs=inputs, outputs=outputs)
             
-            # 옵티마이저 설정
+            # 옵티마이저 설정 (Mixed Precision 호환)
             optimizer = tf.keras.optimizers.Adam(
                 learning_rate=0.0001,
                 beta_1=0.9,
