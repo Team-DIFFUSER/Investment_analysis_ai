@@ -291,7 +291,7 @@ class LGElectronicsModel(BaseStockModel):
         try:
             # 프로젝트 루트 디렉토리 찾기
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
+            project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
             
             # 모델 파일 경로
             model_path = os.path.join(project_root, 'models', 'checkpoints', f'{self.stock_name}_model.h5')
