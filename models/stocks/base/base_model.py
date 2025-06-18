@@ -31,6 +31,9 @@ class BaseStockModel:
         self.predictions_history = {}
         self.error_history = {}
         
+        # 초기화 상태
+        self._initialized = False
+        
         # GPU 메모리 설정
         self._setup_gpu()
         
@@ -235,4 +238,73 @@ class BaseStockModel:
             
         except Exception as e:
             self.logger.error(f"거래일 목록 조회 중 오류 발생: {str(e)}")
-            return [] 
+            return []
+            
+    def is_initialized(self) -> bool:
+        """모델 초기화 상태 확인"""
+        return self._initialized and self.model is not None
+        
+    def initialize(self):
+        """모델 초기화"""
+        try:
+            # 모델 로드 시도
+            if self.load_model():
+                self._initialized = True
+                self.logger.info(f"{self.stock_name} 모델 초기화 완료")
+                return
+            
+            # 모델이 없으면 학습 수행
+            self.logger.warning(f"{self.stock_name} 저장된 모델이 없습니다. 학습을 시작합니다.")
+            self.train()
+            
+            # 학습 후 모델 로드
+            if self.load_model():
+                self._initialized = True
+                self.logger.info(f"{self.stock_name} 모델 학습 및 초기화 완료")
+            else:
+                raise ValueError(f"{self.stock_name} 모델 초기화 실패")
+                
+        except Exception as e:
+            self.logger.error(f"{self.stock_name} 모델 초기화 중 오류 발생: {str(e)}")
+            self._initialized = False
+            raise
+            
+    def train(self):
+        """모델 학습"""
+        try:
+            # 데이터 로드
+            data = self.load_data()
+            if data.empty:
+                raise ValueError("학습 데이터가 없습니다.")
+            
+            # 데이터 전처리
+            processed_data = self.enhanced_preprocessing(data)
+            if processed_data.empty:
+                raise ValueError("데이터 전처리 실패")
+            
+            # 학습 데이터 준비
+            X, y = self.prepare_data(processed_data)
+            if len(X) == 0 or len(y) == 0:
+                raise ValueError("학습 데이터 준비 실패")
+            
+            # 모델 구축
+            self.model = self.build_model((self.sequence_length, X.shape[2]))
+            if self.model is None:
+                raise ValueError("모델 구축 실패")
+            
+            # 모델 학습
+            self.model.fit(
+                X, y,
+                epochs=50,
+                batch_size=self.batch_size,
+                validation_split=0.2,
+                verbose=1
+            )
+            
+            # 모델 저장
+            self.save_model()
+            self.logger.info(f"{self.stock_name} 모델 학습 완료")
+            
+        except Exception as e:
+            self.logger.error(f"{self.stock_name} 모델 학습 중 오류 발생: {str(e)}")
+            raise 

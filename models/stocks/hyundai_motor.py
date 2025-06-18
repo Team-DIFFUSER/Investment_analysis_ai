@@ -695,8 +695,8 @@ class HyundaiMotorModel(BaseStockModel):
         """예측 결과 저장"""
         try:
             self.db_manager.save_prediction(
-                stock_code='A005380',
-                stock_name='현대차',
+                stock_code=self.symbol,
+                stock_name=self.stock_name,
                 prediction_date=datetime.now(),
                 target_date=target_date,
                 predicted_price=float(prediction)
@@ -850,33 +850,6 @@ class HyundaiMotorModel(BaseStockModel):
             
         except Exception as e:
             self.logger.error(f"모델 저장 중 오류 발생: {str(e)}")
-            raise
-
-    def is_initialized(self) -> bool:
-        """모델 초기화 상태 확인"""
-        return self._initialized and self.model is not None
-        
-    def initialize(self):
-        """모델 초기화"""
-        try:
-            # GPU 메모리 설정
-            self._setup_gpu()
-            
-            # 모델 로드
-            self.model = self.load_model()
-            if self.model is None:
-                self.logger.warning("저장된 모델이 없습니다. 모델 학습을 시작합니다...")
-                self.train()
-                self.model = self.load_model()
-                if self.model is None:
-                    raise ValueError("모델 학습 후에도 모델을 로드할 수 없습니다.")
-            
-            self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
-            self._initialized = True
-            
-        except Exception as e:
-            self.logger.error(f"모델 초기화 중 오류 발생: {str(e)}")
-            self._initialized = False
             raise
 
     def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
