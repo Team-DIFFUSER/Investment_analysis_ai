@@ -158,26 +158,20 @@ class StockTrainer:
     def load_training_data(self, stock_name: str) -> pd.DataFrame:
         """학습 데이터 로드 (최적화된 버전)"""
         try:
-            # 더 많은 데이터를 한 번에 로드하여 I/O 최소화
-            query = """
-            SELECT time, open_price, high_price, low_price, close_price, volume
-            FROM stock_prices
-            WHERE stock_name = %s
-            ORDER BY time DESC
-            LIMIT 1000
-            """
-            params = (stock_name,)
-            results = self.db_manager.execute_query(query, params)
-            df = pd.DataFrame(results)
+            # 모델의 load_data 메서드를 직접 사용
+            model = self.models[stock_name]
+            data = model.load_data()
             
-            # 최신 데이터부터 역순으로 정렬
-            if not df.empty:
-                df = df.sort_values('time').reset_index(drop=True)
+            if data.empty:
+                logger.error(f"{stock_name}의 데이터가 비어있습니다.")
+                return pd.DataFrame()
             
-            return df
+            logger.info(f"{stock_name} 데이터 로드 완료: {len(data)} 행")
+            return data
+            
         except Exception as e:
             logger.error(f"학습 데이터 로드 중 오류 발생: {str(e)}")
-            return None
+            return pd.DataFrame()
 
     def train_all_stocks(self) -> Dict[str, Any]:
         """모든 종목에 대한 학습 수행 (최적화된 버전)"""
