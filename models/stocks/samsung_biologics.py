@@ -149,7 +149,7 @@ class SamsungBiologicsModel(BaseStockModel):
             raise
 
     def train_model(self) -> Dict[str, List[float]]:
-        """모델 학습"""
+        """모델 학습 (최적화된 버전)"""
         try:
             # 데이터 로드
             data = self.load_data()
@@ -163,7 +163,7 @@ class SamsungBiologicsModel(BaseStockModel):
             self.logger.info(f"데이터 준비 완료: X shape={X.shape}, y shape={y.shape}")
             
             # 데이터 분할 (60-20-20)
-            train_size = int(len(X) * 0.6)
+            train_size = int(len(X) * 0.7)
             val_size = int(len(X) * 0.2)
             
             X_train = X[:train_size]
@@ -178,50 +178,46 @@ class SamsungBiologicsModel(BaseStockModel):
             # 모델 생성
             self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
             
-            # 콜백 설정
+            # 최적화된 콜백 설정
             callbacks = [
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
-                    patience=50,  # patience 증가
+                    patience=15,  # patience 증가
                     restore_best_weights=True,
-                    min_delta=0.0001
+                    min_delta=0.001
                 ),
                 tf.keras.callbacks.ReduceLROnPlateau(
                     monitor='val_loss',
-                    factor=0.2,
-                    patience=20,  # patience 증가
+                    factor=0.5,
+                    patience=8,  # patience 증가
                     min_lr=0.000001,  # 최소 학습률 감소
-                    verbose=1
+                    verbose=0
                 ),
                 tf.keras.callbacks.ModelCheckpoint(
                     filepath=os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5'),
                     monitor='val_loss',
                     save_best_only=True,
                     save_weights_only=False,
-                    verbose=1
-                ),
-                tf.keras.callbacks.TensorBoard(
-                    log_dir=os.path.join('logs', 'tensorboard', self.stock_name),
-                    histogram_freq=1
+                    verbose=0
                 )
             ]
             
-            # 모델 학습
+            # 최적화된 모델 학습
             history = self.model.fit(
                 X_train, y_train,
                 validation_data=(X_val, y_val),
-                epochs=1000,  # 에포크 수 증가
-                batch_size=32,  # 배치 사이즈 감소
+                epochs=100,  # 에포크 수 증가
+                batch_size=64,  # 배치 사이즈 감소
                 callbacks=callbacks,
-                verbose=1
+                verbose=0
             )
             
-            # 모델 평가
-            test_loss = self.model.evaluate(X_test, y_test, verbose=1)
+            # 간단한 모델 평가
+            test_loss = self.model.evaluate(X_test, y_test, verbose=0)
             self.logger.info(f"평가 메트릭: {dict(zip(self.model.metrics_names, test_loss))}")
             
             # 예측 및 R2 계산
-            y_pred = self.model.predict(X_test)
+            y_pred = self.model.predict(X_test, verbose=0)
             r2 = r2_score(y_test, y_pred)
             mse = mean_squared_error(y_test, y_pred)
             mae = mean_absolute_error(y_test, y_pred)
@@ -606,7 +602,7 @@ class SamsungBiologicsModel(BaseStockModel):
         """모델 평가"""
         try:
             # 예측 수행
-            y_pred = self.model.predict(X_test)
+            y_pred = self.model.predict(X_test, verbose=0)
             
             # Shape 조정
             y_pred = y_pred.reshape(-1)
@@ -777,7 +773,7 @@ class SamsungBiologicsModel(BaseStockModel):
             return np.array([]), np.array([])
 
     def train(self, X: np.ndarray = None, y: np.ndarray = None) -> None:
-        """모델 학습"""
+        """모델 학습 (최적화된 버전)"""
         try:
             self.logger.info(f"모델이 {self.device}에서 실행됩니다.")
             
@@ -803,7 +799,7 @@ class SamsungBiologicsModel(BaseStockModel):
             history = self.model.fit(
                 X, y,
                 epochs=100,
-                batch_size=32,
+                batch_size=64,
                 validation_split=0.2,
                 callbacks=[
                     tf.keras.callbacks.EarlyStopping(

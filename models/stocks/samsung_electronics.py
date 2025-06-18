@@ -149,7 +149,7 @@ class SamsungElectronicsModel(BaseStockModel):
             raise
 
     def train_model(self) -> Dict[str, List[float]]:
-        """모델 학습"""
+        """모델 학습 (최적화된 버전)"""
         try:
             # 데이터 로드
             data = self.load_data()
@@ -162,8 +162,8 @@ class SamsungElectronicsModel(BaseStockModel):
             X, y = self.prepare_data(processed_data)
             self.logger.info(f"데이터 준비 완료: X shape={X.shape}, y shape={y.shape}")
             
-            # 데이터 분할 (60-20-20)
-            train_size = int(len(X) * 0.6)
+            # 데이터 분할 (70-20-10) - 더 많은 학습 데이터
+            train_size = int(len(X) * 0.7)
             val_size = int(len(X) * 0.2)
             
             X_train = X[:train_size]
@@ -178,19 +178,19 @@ class SamsungElectronicsModel(BaseStockModel):
             # 모델 생성
             self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
             
-            # 콜백 설정
+            # 최적화된 콜백 설정
             callbacks = [
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
-                    patience=50,  # patience 증가
+                    patience=15,  # patience 감소 (빠른 조기 종료)
                     restore_best_weights=True,
-                    min_delta=0.0001
+                    min_delta=0.001  # 더 큰 변화량 요구
                 ),
                 tf.keras.callbacks.ReduceLROnPlateau(
                     monitor='val_loss',
-                    factor=0.2,
-                    patience=20,  # patience 증가
-                    min_lr=0.000001,  # 최소 학습률 감소
+                    factor=0.5,  # 더 빠른 학습률 감소
+                    patience=8,  # patience 감소
+                    min_lr=0.00001,
                     verbose=1
                 ),
                 tf.keras.callbacks.ModelCheckpoint(
@@ -198,30 +198,27 @@ class SamsungElectronicsModel(BaseStockModel):
                     monitor='val_loss',
                     save_best_only=True,
                     save_weights_only=False,
-                    verbose=1
-                ),
-                tf.keras.callbacks.TensorBoard(
-                    log_dir=os.path.join('logs', 'tensorboard', self.stock_name),
-                    histogram_freq=1
+                    verbose=0  # 로그 출력 최소화
                 )
             ]
             
-            # 모델 학습
+            # 최적화된 모델 학습
             history = self.model.fit(
                 X_train, y_train,
                 validation_data=(X_val, y_val),
-                epochs=1000,  # 에포크 수 증가
-                batch_size=32,  # 배치 사이즈 감소
+                epochs=100,  # 에포크 수 감소
+                batch_size=64,  # 배치 사이즈 증가 (속도 향상)
                 callbacks=callbacks,
-                verbose=1
+                verbose=1,
+                shuffle=True  # 데이터 셔플링으로 학습 안정성 향상
             )
             
-            # 모델 평가
-            test_loss = self.model.evaluate(X_test, y_test, verbose=1)
+            # 간단한 모델 평가
+            test_loss = self.model.evaluate(X_test, y_test, verbose=0)
             self.logger.info(f"평가 메트릭: {dict(zip(self.model.metrics_names, test_loss))}")
             
             # 예측 및 R2 계산
-            y_pred = self.model.predict(X_test)
+            y_pred = self.model.predict(X_test, verbose=0)
             r2 = r2_score(y_test, y_pred)
             mse = mean_squared_error(y_test, y_pred)
             mae = mean_absolute_error(y_test, y_pred)
