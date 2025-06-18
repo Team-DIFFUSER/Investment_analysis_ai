@@ -10,7 +10,6 @@ import random
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
 
-from models.base.price_predict_model import BasePricePredictModel, setup_gpu, enhanced_weighted_time_mse
 from database.database import DatabaseManager
 from utils.date_utils import get_next_five_business_days
 from .base.base_model import BaseStockModel
