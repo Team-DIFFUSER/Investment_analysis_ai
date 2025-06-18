@@ -541,11 +541,27 @@ class HanwhaAerospaceModel(BaseStockModel):
                 'Volatility', 'Volatility_MA5',
                 'ROC', 'Momentum', 'ADX']
             
+            # 스케일러 적용 전 NaN 검증
+            feature_data = processed_data[features]
+            if feature_data.isnull().any().any():
+                self.logger.warning("스케일러 적용 전 NaN 값 발견. 추가 처리 중...")
+                feature_data = feature_data.fillna(method='ffill').fillna(method='bfill').fillna(0)
+                processed_data[features] = feature_data
+            
+            # 무한대 값 처리
+            processed_data[features] = processed_data[features].replace([np.inf, -np.inf], 0)
+            
             # 전체 데이터로 스케일러 학습
             self.scaler.fit(processed_data[features])
             
             # 마지막 sequence_length일의 데이터만 사용
             last_sequence = processed_data[features].iloc[-self.sequence_length:].values
+            
+            # 스케일링 전 최종 검증
+            if np.isnan(last_sequence).any():
+                self.logger.error("스케일링 전 입력 데이터에 NaN 값이 있습니다.")
+                return []
+            
             last_sequence = self.scaler.transform(last_sequence)
             
             # 예측을 위한 입력 데이터 준비
@@ -575,6 +591,12 @@ class HanwhaAerospaceModel(BaseStockModel):
             for i in range(5):
                 # 다음 날 예측
                 next_day_pred = self.model.predict(current_sequence, verbose=0)[0][0]
+                
+                # 예측값이 NaN인지 확인
+                if np.isnan(next_day_pred):
+                    self.logger.error(f"예측값이 NaN입니다. 인덱스: {i}")
+                    return []
+                
                 predictions.append(next_day_pred)
                 
                 # 예측값을 현재 시퀀스에 추가
@@ -871,21 +893,21 @@ class HanwhaAerospaceModel(BaseStockModel):
                     data[col] = data[col].astype(float)
             
             # 기본 기술적 지표
-            data['MA5'] = data['close_price'].rolling(window=5).mean()
-            data['MA20'] = data['close_price'].rolling(window=20).mean()
-            data['MA60'] = data['close_price'].rolling(window=60).mean()
-            data['MA120'] = data['close_price'].rolling(window=120).mean()
+            data['MA5'] = data['close_price'].rolling(window=5, min_periods=1).mean()
+            data['MA20'] = data['close_price'].rolling(window=20, min_periods=1).mean()
+            data['MA60'] = data['close_price'].rolling(window=60, min_periods=1).mean()
+            data['MA120'] = data['close_price'].rolling(window=120, min_periods=1).mean()
             
             # 볼린저 밴드
-            data['BB_middle'] = data['close_price'].rolling(window=20).mean()
-            data['BB_std'] = data['close_price'].rolling(window=20).std()
+            data['BB_middle'] = data['close_price'].rolling(window=20, min_periods=1).mean()
+            data['BB_std'] = data['close_price'].rolling(window=20, min_periods=1).std()
             data['BB_upper'] = data['BB_middle'] + (data['BB_std'] * 2)
             data['BB_lower'] = data['BB_middle'] - (data['BB_std'] * 2)
             
             # RSI
             delta = data['close_price'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14, min_periods=1).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
             rs = gain / loss
             data['RSI'] = 100 - (100 / (1 + rs))
             
@@ -897,31 +919,31 @@ class HanwhaAerospaceModel(BaseStockModel):
             data['MACD_Histogram'] = data['MACD'] - data['Signal_Line']
             
             # 스토캐스틱
-            low_min = data['low_price'].rolling(window=14).min()
-            high_max = data['high_price'].rolling(window=14).max()
+            low_min = data['low_price'].rolling(window=14, min_periods=1).min()
+            high_max = data['high_price'].rolling(window=14, min_periods=1).max()
             data['Stoch_K'] = 100 * ((data['close_price'] - low_min) / (high_max - low_min))
-            data['Stoch_D'] = data['Stoch_K'].rolling(window=3).mean()
+            data['Stoch_D'] = data['Stoch_K'].rolling(window=3, min_periods=1).mean()
             
             # ATR (Average True Range)
             tr1 = data['high_price'] - data['low_price']
             tr2 = abs(data['high_price'] - data['close_price'].shift())
             tr3 = abs(data['low_price'] - data['close_price'].shift())
             data['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            data['ATR'] = data['TR'].rolling(window=14).mean()
+            data['ATR'] = data['TR'].rolling(window=14, min_periods=1).mean()
             
             # 거래량 지표
-            data['Volume_MA5'] = data['volume'].rolling(window=5).mean()
-            data['Volume_MA20'] = data['volume'].rolling(window=20).mean()
+            data['Volume_MA5'] = data['volume'].rolling(window=5, min_periods=1).mean()
+            data['Volume_MA20'] = data['volume'].rolling(window=20, min_periods=1).mean()
             data['Volume_Ratio'] = data['volume'] / data['Volume_MA20']
             
             # 가격 변화율
             data['Price_Change'] = data['close_price'].pct_change()
-            data['Price_Change_MA5'] = data['Price_Change'].rolling(window=5).mean()
-            data['Price_Change_MA20'] = data['Price_Change'].rolling(window=20).mean()
+            data['Price_Change_MA5'] = data['Price_Change'].rolling(window=5, min_periods=1).mean()
+            data['Price_Change_MA20'] = data['Price_Change'].rolling(window=20, min_periods=1).mean()
             
             # 변동성
-            data['Volatility'] = data['close_price'].rolling(window=20).std()
-            data['Volatility_MA5'] = data['Volatility'].rolling(window=5).mean()
+            data['Volatility'] = data['close_price'].rolling(window=20, min_periods=1).std()
+            data['Volatility_MA5'] = data['Volatility'].rolling(window=5, min_periods=1).mean()
             
             # 모멘텀 지표
             data['ROC'] = data['close_price'].pct_change(periods=10) * 100
@@ -930,8 +952,31 @@ class HanwhaAerospaceModel(BaseStockModel):
             # 추세 강도
             data['ADX'] = self._calculate_adx(data)
             
-            # 결측치 처리
-            data = data.fillna(method='ffill').fillna(method='bfill')
+            # 무한대 값 처리
+            data = data.replace([np.inf, -np.inf], np.nan)
+            
+            # 결측치 처리 - 더 강력한 방법 사용
+            # 먼저 전방향 채우기
+            data = data.fillna(method='ffill')
+            # 후방향 채우기
+            data = data.fillna(method='bfill')
+            # 남은 결측치는 0으로 채우기
+            data = data.fillna(0)
+            
+            # 최종 검증 - 여전히 NaN이 있는지 확인
+            if data.isnull().any().any():
+                self.logger.warning("전처리 후에도 NaN 값이 남아있습니다. 추가 처리 중...")
+                # 각 컬럼별로 개별 처리
+                for col in data.columns:
+                    if data[col].isnull().any():
+                        if col in ['open_price', 'high_price', 'low_price', 'close_price']:
+                            # 가격 데이터는 이전 값으로 채우기
+                            data[col] = data[col].fillna(method='ffill').fillna(method='bfill')
+                        else:
+                            # 기술적 지표는 0으로 채우기
+                            data[col] = data[col].fillna(0)
+            
+            self.logger.info(f"전처리 완료: 데이터 형태 {data.shape}, NaN 개수: {data.isnull().sum().sum()}")
             
             return data
             
@@ -947,7 +992,7 @@ class HanwhaAerospaceModel(BaseStockModel):
             tr2 = abs(data['high_price'] - data['close_price'].shift())
             tr3 = abs(data['low_price'] - data['close_price'].shift())
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            atr = tr.rolling(window=period).mean()
+            atr = tr.rolling(window=period, min_periods=1).mean()
             
             # Directional Movement
             up_move = data['high_price'] - data['high_price'].shift()
@@ -956,18 +1001,21 @@ class HanwhaAerospaceModel(BaseStockModel):
             plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
             minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
             
-            plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / atr)
-            minus_di = 100 * (pd.Series(minus_dm).rolling(window=period).mean() / atr)
+            plus_di = 100 * (pd.Series(plus_dm).rolling(window=period, min_periods=1).mean() / atr)
+            minus_di = 100 * (pd.Series(minus_dm).rolling(window=period, min_periods=1).mean() / atr)
             
             # ADX
             dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
-            adx = dx.rolling(window=period).mean()
+            adx = dx.rolling(window=period, min_periods=1).mean()
+            
+            # NaN 값 처리
+            adx = adx.fillna(0)
             
             return adx
             
         except Exception as e:
             self.logger.error(f"ADX 계산 중 오류 발생: {str(e)}")
-            return pd.Series()
+            return pd.Series([0] * len(data))
 
 if __name__ == "__main__":
     model = HanwhaAerospaceModel()
