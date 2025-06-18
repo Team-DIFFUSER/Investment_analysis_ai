@@ -2,6 +2,10 @@ import os
 import sys
 import logging
 from datetime import datetime
+
+# 프로젝트 루트 디렉토리를 Python 경로에 추가
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from models.stocks.lg_electronics import LGElectronicsModel
 from models.stocks.samsung_electronics import SamsungElectronicsModel
 from models.stocks.sk_hynix import SKHynixModel
