@@ -9,6 +9,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import FinanceDataReader as fdr
 import numpy as np
+import pytz
 
 # 현재 파일의 절대 경로
 current_file = Path(__file__).resolve()
@@ -44,9 +45,25 @@ def create_stock_prices_table():
     print("Stock prices table created successfully!")
 
 def get_date_range():
-    """오늘 날짜만 가져오기 위한 날짜 범위 계산"""
-    today = datetime.now()
-    return today.strftime('%Y%m%d'), today.strftime('%Y%m%d')
+    """한국 시간 기준으로 오늘 날짜만 가져오기 위한 날짜 범위 계산"""
+    # 한국 시간대 설정
+    korea_tz = pytz.timezone('Asia/Seoul')
+    today_korea = datetime.now(korea_tz)
+    
+    # 주말인지 확인
+    if today_korea.weekday() >= 5:  # 5=토요일, 6=일요일
+        print(f"⚠️ 오늘은 주말입니다 ({today_korea.strftime('%Y-%m-%d %A')})")
+        print("📅 가장 최근 거래일을 확인합니다...")
+        
+        # 가장 최근 거래일 찾기 (최대 7일 전까지)
+        for i in range(1, 8):
+            check_date = today_korea - timedelta(days=i)
+            if check_date.weekday() < 5:  # 평일인 경우
+                print(f"📅 최근 거래일: {check_date.strftime('%Y-%m-%d %A')}")
+                return check_date.strftime('%Y%m%d'), check_date.strftime('%Y%m%d')
+    
+    print(f"📅 오늘 날짜 (한국 시간): {today_korea.strftime('%Y-%m-%d %A')}")
+    return today_korea.strftime('%Y%m%d'), today_korea.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
     """종목코드에서 'A' 접두사 제거"""
@@ -76,7 +93,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
             
             # 데이터가 없는 경우
             if df.empty:
-                print(f"  - 오늘 데이터가 없음 (거래일이 아님)")
+                print(f"  - {start_date} 데이터가 없음 (거래일이 아님)")
                 return None, 0
                 
             # 컬럼명 변경
@@ -115,7 +132,7 @@ def fetch_stock_data(stock_code, start_date, end_date):
             except Exception as e:
                 print(f"  - 외국인 보유량 데이터 가져오기 실패: {str(e)}")
             
-            print(f"  - 오늘 주가 데이터 가져오기 성공!")
+            print(f"  - {start_date} 주가 데이터 가져오기 성공!")
             print(f"  - 데이터 샘플:\n{df.head()}")
             return df, len(df)
             
@@ -135,16 +152,20 @@ def fetch_stock_data(stock_code, start_date, end_date):
 
 def delete_today_data():
     """오늘 날짜의 기존 데이터를 삭제합니다."""
-    today = datetime.now().strftime('%Y-%m-%d')
+    # 한국 시간 기준으로 오늘 날짜 계산
+    korea_tz = pytz.timezone('Asia/Seoul')
+    today_korea = datetime.now(korea_tz)
+    today_str = today_korea.strftime('%Y-%m-%d')
+    
     query = "DELETE FROM stock_prices WHERE time = %s;"
-    execute_query(query, (today,))
-    print(f"🗑️ {today} 기존 데이터 삭제 완료")
+    execute_query(query, (today_str,))
+    print(f"🗑️ {today_str} 기존 데이터 삭제 완료")
 
 def fetch_stock_prices():
     """오늘 주가 데이터를 가져와 데이터베이스에 저장"""
     print("📢 KOSPI200 오늘 주가 데이터를 가져오는 중...")
     
-    # 시작일과 종료일 설정 (오늘 날짜만)
+    # 시작일과 종료일 설정 (한국 시간 기준)
     start_date, end_date = get_date_range()
     print(f"📆 조회일: {start_date}")
     
@@ -169,17 +190,17 @@ def fetch_stock_prices():
         stock_code = row['stock_code']
         stock_name = row['stock_name']
         
-        print(f"🔄 ({idx+1}/{len(stock_list)}) {stock_name}({stock_code}) 오늘 데이터 수집 중...")
+        print(f"🔄 ({idx+1}/{len(stock_list)}) {stock_name}({stock_code}) {start_date} 데이터 수집 중...")
         
         df, count = fetch_stock_data(stock_code, start_date, end_date)
         
         if df is not None and not df.empty:
             all_stock_data.append(df)
             success_count += 1
-            print(f"✅ {stock_name}({stock_code}) - 오늘 데이터 {count}개 수집 완료")
+            print(f"✅ {stock_name}({stock_code}) - {start_date} 데이터 {count}개 수집 완료")
         else:
             fail_count += 1
-            print(f"❌ {stock_name}({stock_code}) - 오늘 데이터 없음")
+            print(f"❌ {stock_name}({stock_code}) - {start_date} 데이터 없음")
     
     if all_stock_data:
         # 모든 주가 데이터 합치기
@@ -216,7 +237,7 @@ def fetch_stock_prices():
         
         execute_values_query(query, data)
         
-        print(f"\n💾 오늘 데이터가 데이터베이스에 저장되었습니다.")
+        print(f"\n💾 {start_date} 데이터가 데이터베이스에 저장되었습니다.")
         print(f"📊 통계:")
         print(f"   - 성공한 종목 수: {success_count}/{len(stock_list)}")
         print(f"   - 실패한 종목 수: {fail_count}")
@@ -224,7 +245,7 @@ def fetch_stock_prices():
         
         return combined_df
     else:
-        print("❌ 저장할 오늘 데이터가 없습니다.")
+        print(f"❌ 저장할 {start_date} 데이터가 없습니다.")
         return None
 
 if __name__ == "__main__":
@@ -232,6 +253,6 @@ if __name__ == "__main__":
     create_stock_prices_table()
     stock_data = fetch_stock_prices()
     if stock_data is not None:
-        print(f"✅ 오늘 데이터 수집 및 저장 완료!")
+        print(f"✅ 데이터 수집 및 저장 완료!")
     else:
-        print("❌ 오늘 데이터 수집 실패!") 
+        print("❌ 데이터 수집 실패!") 
