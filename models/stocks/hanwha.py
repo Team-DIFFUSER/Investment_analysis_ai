@@ -533,10 +533,11 @@ class HanwhaAerospaceModel(BaseStockModel):
                 'MA5', 'MA20', 'MA60', 'MA120',
                 'BB_middle', 'BB_std', 'BB_upper', 'BB_lower',
                 'RSI', 'MACD', 'Signal_Line', 'MACD_Histogram',
-                'Stoch_K', 'Stoch_D', 'TR', 'ATR',
+                'Stoch_K', 'Stoch_D', 'ATR',
                 'Volume_MA5', 'Volume_MA20', 'Volume_Ratio',
                 'Price_Change', 'Price_Change_MA5', 'Price_Change_MA20',
-                'Volatility', 'Volatility_MA5', 'ROC', 'Momentum', 'ADX']
+                'Volatility', 'Volatility_MA5',
+                'ROC', 'Momentum', 'ADX']
             
             # 전체 데이터로 스케일러 학습
             self.scaler.fit(processed_data[features])
@@ -552,6 +553,11 @@ class HanwhaAerospaceModel(BaseStockModel):
             # 예측
             predictions = []
             current_sequence = X.copy()
+            
+            # 모델이 제대로 로드되었는지 확인
+            if self.model is None:
+                self.logger.error("모델이 로드되지 않았습니다.")
+                return []
             
             # 예측 날짜 계산 (마지막 데이터 다음날부터 5거래일)
             last_date = data.index[-1].date()
