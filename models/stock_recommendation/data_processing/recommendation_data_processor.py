@@ -229,8 +229,8 @@ class RecommendationDataProcessor:
             # 최신 데이터만 사용
             financial_data = financial_data.sort_values('created_at').groupby('stock_code').last().reset_index()
             
-            # 종목 코드 형식 통일
-            financial_data['stock_code'] = financial_data['stock_code'].astype(str).str.zfill(6)
+            # 종목 코드 형식 통일 (A 접두사 추가하여 stock_items와 맞춤)
+            financial_data['stock_code'] = 'A' + financial_data['stock_code'].astype(str).str.zfill(6)
             
             return financial_data
             

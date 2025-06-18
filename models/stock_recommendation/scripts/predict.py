@@ -9,6 +9,7 @@ import pymongo
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any
 from dotenv import load_dotenv
+import numpy as np
 
 # .env 파일 로드
 load_dotenv()
@@ -32,7 +33,8 @@ TS_CONFIG = {
     'database': os.getenv('DB_NAME'),
     'user': os.getenv('DB_USER'),
     'password': os.getenv('DB_PASSWORD'),
-    'sslmode': os.getenv('DB_SSL_MODE', 'require')
+    'sslmode': os.getenv('DB_SSL_MODE', 'require'),
+    'options': '-c client_encoding=utf8 -c timezone=Asia/Seoul'
 }
 
 # 상위 디렉토리 경로 추가
@@ -150,11 +152,13 @@ def save_recommendations_to_db(recommendations: List[Dict[str, Any]], user_id: s
         conn = psycopg2.connect(**TS_CONFIG)
         cur = conn.cursor()
         
+        # 문자셋 및 시간대 설정
+        cur.execute("SET client_encoding TO 'UTF8';")
+        cur.execute("SET names 'utf8';")
+        cur.execute("SET timezone TO 'Asia/Seoul';")
+        
         # 현재 시간을 KST로 가져오기
         current_time = datetime.now(timezone(timedelta(hours=9)))
-        
-        # 시간대 설정
-        cur.execute("SET timezone TO 'Asia/Seoul';")
         
         for rec in recommendations:
             cur.execute("""
@@ -234,7 +238,12 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
                 'sale_amt_norm', 'bus_pro_norm', 'cup_nga_norm', 'cap_norm',
                 'profit_margin_norm', 'asset_turnover_norm', 'financial_leverage_norm'
             ]
-            X = torch.tensor(features_df[feature_cols].values, dtype=torch.float32)
+            X = features_df[feature_cols].values
+            
+            # nan/inf를 0으로 대체
+            X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            X = torch.tensor(X, dtype=torch.float32)
             pred_array = model(X).squeeze().numpy()
 
         # 예측 결과를 딕셔너리로 변환
@@ -247,6 +256,18 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
         
         # 투자 유형별 가중치 적용
         weights = config.get_investment_weights(investment_type)
+        
+        # 최종 점수 계산에 사용할 정규화된 특징들에 nan/inf 처리
+        norm_features = [
+            '1개월수익률_norm', '변동성_1개월_norm', 'sentiment_score_norm',
+            'per_norm', 'pbr_norm', 'roe_norm', 'ev_norm', 'bps_norm',
+            'profit_margin_norm', 'asset_turnover_norm', 'financial_leverage_norm'
+        ]
+        
+        for feature in norm_features:
+            if feature in features_df.columns:
+                features_df[feature] = features_df[feature].fillna(0.0)
+                features_df[feature] = features_df[feature].replace([np.inf, -np.inf], 0.0)
         
         # 최종 점수 계산
         features_df['최종점수'] = (
@@ -264,6 +285,10 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
                 (1 - features_df['financial_leverage_norm'])
             ) / 8
         ) * 100
+        
+        # 최종점수에도 nan/inf 처리
+        features_df['최종점수'] = features_df['최종점수'].fillna(0.0)
+        features_df['최종점수'] = features_df['최종점수'].replace([np.inf, -np.inf], 0.0)
         
         # 상위 종목 선정
         top_n = config.get_recommendation_config()['top_n']
