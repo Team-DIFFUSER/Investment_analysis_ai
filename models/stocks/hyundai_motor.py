@@ -74,7 +74,7 @@ random.seed(SEED)
 class HyundaiMotorModel(BaseStockModel):
     def __init__(self):
         """현대자동차 주가 예측 모델 초기화"""
-        super().__init__('현대자동차', '005380.KS')
+        super().__init__('현대차', '005380.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -279,7 +279,7 @@ class HyundaiMotorModel(BaseStockModel):
             # 예측 결과 저장
             self.db_manager.save_prediction(
                 stock_code='A005380',
-                stock_name='현대자동차',
+                stock_name='현대차',
                 prediction_date=datetime.now(),
                 target_date=datetime.now() + timedelta(days=1),
                 predicted_price=float(prediction)
@@ -589,7 +589,7 @@ class HyundaiMotorModel(BaseStockModel):
             for pred_date, pred_price in zip(prediction_dates, predictions):
                 self.db_manager.save_prediction(
                     stock_code='A005380',
-                    stock_name='현대자동차',
+                    stock_name='현대차',
                     prediction_date=datetime.now(),
                     target_date=pred_date,
                     predicted_price=float(pred_price)
@@ -697,7 +697,7 @@ class HyundaiMotorModel(BaseStockModel):
         try:
             self.db_manager.save_prediction(
                 stock_code='A005380',
-                stock_name='현대자동차',
+                stock_name='현대차',
                 prediction_date=datetime.now(),
                 target_date=target_date,
                 predicted_price=float(prediction)
