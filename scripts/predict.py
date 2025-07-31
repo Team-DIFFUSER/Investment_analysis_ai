@@ -2,7 +2,10 @@ import os
 import sys
 import logging
 from datetime import datetime
-from models.stocks.base.prediction_manager import PredictionManager
+
+# 프로젝트 루트 디렉토리를 Python 경로에 추가
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from models.stocks.lg_electronics import LGElectronicsModel
 from models.stocks.samsung_electronics import SamsungElectronicsModel
 from models.stocks.sk_hynix import SKHynixModel
@@ -20,39 +23,71 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def initialize_and_predict(model, stock_name):
+    """모델 초기화 및 예측 수행"""
+    try:
+        logger.info(f"{stock_name} 모델 초기화 시작")
+        
+        # 모델 초기화
+        if hasattr(model, 'initialize'):
+            model.initialize()
+        else:
+            # 모델이 초기화되지 않은 경우 학습 수행
+            logger.info(f"{stock_name} 모델 학습 시작")
+            model.train()
+        
+        # 예측 수행
+        logger.info(f"{stock_name} 예측 시작")
+        predictions = model.predict_next_five_days()
+        
+        if predictions:
+            logger.info(f"{stock_name} 예측 완료: {predictions}")
+            return True
+        else:
+            logger.error(f"{stock_name} 예측 실패")
+            return False
+            
+    except Exception as e:
+        logger.error(f"{stock_name} 처리 중 오류 발생: {str(e)}")
+        return False
+
 def main():
     try:
-        # 모델 초기화
-        lg_model = LGElectronicsModel()
-        samsung_model = SamsungElectronicsModel()
-        sk_hynix_model = SKHynixModel()
-        samsung_biologics_model = SamsungBiologicsModel()
-        lg_energy_model = LGEnergySolutionModel()
-        hanwha_aerospace_model = HanwhaAerospaceModel()
-        hyundai_motor_model = HyundaiMotorModel()
-        kia_model = KiaModel()
-        hd_hyundai_model = HDHyundaiModel()
+        # 모델 인스턴스 생성
+        models = {
+            'LG전자': LGElectronicsModel(),
+            '삼성전자': SamsungElectronicsModel(),
+            'SK하이닉스': SKHynixModel(),
+            '삼성바이오로직스': SamsungBiologicsModel(),
+            'LG화학': LGEnergySolutionModel(),
+            '한화': HanwhaAerospaceModel(),
+            '현대차': HyundaiMotorModel(),
+            '기아': KiaModel(),
+            'HD현대중공업': HDHyundaiModel()
+        }
         
-        prediction_manager = PredictionManager()
-        prediction_manager.add_model('LG전자', lg_model)
-        prediction_manager.add_model('삼성전자', samsung_model)
-        prediction_manager.add_model('SK하이닉스', sk_hynix_model)
-        prediction_manager.add_model('삼성바이오로직스', samsung_biologics_model)
-        prediction_manager.add_model('LG화학', lg_energy_model)
-        prediction_manager.add_model('한화', hanwha_aerospace_model)
-        prediction_manager.add_model('현대차', hyundai_motor_model)
-        prediction_manager.add_model('기아', kia_model)
-        prediction_manager.add_model('HD현대중공업', hd_hyundai_model)
+        # 각 모델별로 초기화 및 예측 수행
+        success_count = 0
+        total_count = len(models)
         
-        # 일일 예측 실행
-        logger.info("일일 예측 시작")
-        prediction_manager.run_daily_prediction()
+        for stock_name, model in models.items():
+            logger.info(f"\n{'='*50}")
+            logger.info(f"{stock_name} 처리 시작")
+            logger.info(f"{'='*50}")
+            
+            if initialize_and_predict(model, stock_name):
+                success_count += 1
+            else:
+                logger.error(f"{stock_name} 처리 실패")
         
-        # 예측 결과 출력
-        for stock_name in prediction_manager.models.keys():
-            logger.info(f"\n{stock_name} 예측 결과:")
-            logger.info(f"예측 이력: {prediction_manager.predictions_data['stock_predictions'].get(stock_name, {})}")
-            logger.info(f"오차 통계: {prediction_manager.predictions_data['error_metrics'].get(stock_name, {})}")
+        # 결과 요약
+        logger.info(f"\n{'='*50}")
+        logger.info(f"예측 완료: {success_count}/{total_count} 성공")
+        logger.info(f"{'='*50}")
+        
+        if success_count == 0:
+            logger.error("모든 모델 예측이 실패했습니다.")
+            sys.exit(1)
             
     except Exception as e:
         logger.error(f"예측 실행 중 오류 발생: {str(e)}")

@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+import tensorflow as tf
 
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,12 +30,55 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# TensorFlow 성능 최적화
+def optimize_tensorflow():
+    """TensorFlow 성능 최적화 설정 (호환성 우선)"""
+    # GPU 메모리 증가 허용
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            logger.info("GPU 메모리 증가 설정 완료")
+        except RuntimeError as e:
+            logger.warning(f"GPU 메모리 설정 실패: {e}")
+    
+    # Mixed Precision 완전 비활성화 (호환성 문제 해결)
+    try:
+        tf.keras.mixed_precision.set_global_policy('float32')
+        logger.info("Mixed Precision 비활성화 완료 (float32 사용)")
+    except Exception as e:
+        logger.warning(f"Mixed Precision 설정 실패: {e}")
+    
+    # XLA JIT 컴파일 완전 비활성화 (호환성 문제 해결)
+    tf.config.optimizer.set_jit(False)
+    logger.info("XLA JIT 컴파일 비활성화 완료")
+    
+    # 다른 성능 최적화 설정
+    tf.config.optimizer.set_experimental_options({
+        "layout_optimizer": True,
+        "constant_folding": True,
+        "shape_optimization": True,
+        "remapping": True,
+        "arithmetic_optimization": True,
+        "dependency_optimization": True,
+        "loop_optimization": True,
+        "function_optimization": True,
+        "debug_stripper": True,
+        "disable_model_pruning": False,
+        "scoped_allocator_optimization": True,
+        "pin_to_host_optimization": True,
+        "implementation_selector": True,
+        "auto_mixed_precision": False
+    })
+    logger.info("TensorFlow 최적화 설정 완료")
+
 class StockTrainer:
     def __init__(self):
         """주식 학습기 초기화"""
         self.db_manager = DatabaseManager()
         self.models = {}
-        self.max_workers = 4  # 동시에 처리할 최대 종목 수
+        self.max_workers = 6  # 동시에 처리할 최대 종목 수 증가
         
     def initialize_models(self) -> None:
         """모든 모델 초기화"""
@@ -58,16 +102,20 @@ class StockTrainer:
             raise
 
     def train_single_stock(self, stock_name: str, model: Any) -> Dict[str, Any]:
-        """단일 종목 학습 수행"""
+        """단일 종목 학습 수행 (최적화된 버전)"""
         try:
             logger.info(f"{stock_name} 학습 시작")
+            
+            # 모델의 하이퍼파라미터 최적화 (Mixed Precision 대신 배치 크기로 보완)
+            model.batch_size = 128  # 배치 크기 대폭 증가 (속도 향상)
+            model.sequence_length = 20  # 시퀀스 길이 증가 (정확도 향상)
             
             # 학습 데이터 로드
             training_data = self.load_training_data(stock_name)
             if training_data is None or training_data.empty:
                 raise ValueError(f"{stock_name}의 학습 데이터가 없습니다.")
             
-            # 모델 학습
+            # 모델 학습 (최적화된 설정)
             history = model.train_model()
             
             # 모델 저장
@@ -127,24 +175,28 @@ class StockTrainer:
             }
 
     def load_training_data(self, stock_name: str) -> pd.DataFrame:
-        """학습 데이터 로드"""
+        """학습 데이터 로드 (최적화된 버전)"""
         try:
-            query = """
-            SELECT time, open_price, high_price, low_price, close_price, volume
-            FROM stock_prices
-            WHERE stock_name = %s
-            ORDER BY time
-            """
-            params = (stock_name,)
-            results = self.db_manager.execute_query(query, params)
-            return pd.DataFrame(results)
+            # 모델의 load_data 메서드를 직접 사용
+            model = self.models[stock_name]
+            data = model.load_data()
+            
+            if data.empty:
+                logger.error(f"{stock_name}의 데이터가 비어있습니다.")
+                return pd.DataFrame()
+            
+            logger.info(f"{stock_name} 데이터 로드 완료: {len(data)} 행")
+            return data
+            
         except Exception as e:
             logger.error(f"학습 데이터 로드 중 오류 발생: {str(e)}")
-            return None
+            return pd.DataFrame()
 
     def train_all_stocks(self) -> Dict[str, Any]:
-        """모든 종목에 대한 학습 수행"""
+        """모든 종목에 대한 학습 수행 (최적화된 버전)"""
         results = {}
+        
+        # 더 많은 워커로 병렬 처리
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # 각 종목에 대한 학습 작업 제출
             future_to_stock = {
@@ -193,8 +245,8 @@ class StockTrainer:
                            if result['status'] == 'error']
             
             report = f"""
-            학습 결과 리포트
-            ==============
+            학습 결과 리포트 (최적화된 버전)
+            ==============================
             총 종목 수: {len(results)}
             성공: {success_count}
             실패: {error_count}
@@ -222,7 +274,7 @@ class StockTrainer:
             raise
 
 def train_model(model_class=None):
-    """주식 예측 모델 학습
+    """주식 예측 모델 학습 (최적화된 버전)
     
     Args:
         model_class: 학습할 모델 클래스 (예: LGElectronicsModel, SamsungElectronicsModel)
@@ -234,6 +286,10 @@ def train_model(model_class=None):
             
         # 모델 초기화
         model = model_class()
+        
+        # 하이퍼파라미터 최적화
+        model.batch_size = 64
+        model.sequence_length = 15
         
         # 데이터 로드 및 전처리
         logger.info(f"{model.stock_name} 데이터 로드 및 전처리 시작...")
@@ -269,9 +325,12 @@ def train_model(model_class=None):
         raise
 
 def main():
-    """메인 실행 함수"""
+    """메인 실행 함수 (최적화된 버전)"""
     try:
-        logger.info("모델 학습을 시작합니다.")
+        logger.info("모델 학습을 시작합니다. (최적화된 버전)")
+        
+        # TensorFlow 최적화 적용
+        optimize_tensorflow()
         
         # 데이터베이스 연결
         db_manager = DatabaseManager()
