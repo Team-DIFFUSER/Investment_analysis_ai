@@ -70,10 +70,10 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
 
-class KBFinancialGroupModel(BaseStockModel):
+class SamsungElectronicsPreferredModel(BaseStockModel):
     def __init__(self):
-        """KB금융 주가 예측 모델 초기화"""
-        super().__init__('KB금융', '105560.KS')
+        """삼성전자우 주가 예측 모델 초기화"""
+        super().__init__('삼성전자우', '005935.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -96,10 +96,10 @@ class KBFinancialGroupModel(BaseStockModel):
             self.logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
 
     def load_data(self) -> pd.DataFrame:
-        """KB금융 주가 데이터 로드"""
+        """삼성전자우 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            data = self.db_manager.get_stock_data('A105560')  # KB금융 종목코드
+            data = self.db_manager.get_stock_data('A005935')  # 삼성전자우 종목코드
             
             if data.empty:
                 self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")
@@ -411,7 +411,7 @@ class KBFinancialGroupModel(BaseStockModel):
             raise
     
     def build_model(self, input_shape: tuple) -> tf.keras.Model:
-        """KB금융 전용 모델 구축"""
+        """삼성전자우 전용 모델 구축"""
         try:
             # 입력 레이어
             inputs = layers.Input(shape=input_shape)
@@ -625,8 +625,8 @@ class KBFinancialGroupModel(BaseStockModel):
             # 예측 결과를 데이터베이스에 저장
             for pred_date, pred_price in zip(prediction_dates, predictions):
                 self.db_manager.save_prediction(
-                    stock_code='A105560',
-                    stock_name='KB금융',
+                    stock_code='A005935',
+                    stock_name='삼성전자우',
                     prediction_date=datetime.now(),
                     target_date=pred_date,
                     predicted_price=float(pred_price)
@@ -1036,3 +1036,12 @@ class KBFinancialGroupModel(BaseStockModel):
 if __name__ == "__main__":
     model = SamsungElectronicsPreferredModel()
     model.train_model()
+
+    # 예측
+    predictions = model.predict_next_five_days()
+    print(f"다음 5일 예측: {predictions}")
+
+    # 평가
+    _, _, _, _, X_test, y_test, _ = model.prepare_training_data()
+    evaluation = model.evaluate(X_test, y_test)
+    print(f"모델 평가: {evaluation}")
