@@ -70,10 +70,10 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
 
-class HDHyundaiModel(BaseStockModel):
+class SKTelecomModel(BaseStockModel):
     def __init__(self):
-        """HD현대 주가 예측 모델 초기화"""
-        super().__init__('HD현대', '267250.KS')
+        """SK텔레콤 주가 예측 모델 초기화"""
+        super().__init__('SK텔레콤', '017670.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -99,7 +99,7 @@ class HDHyundaiModel(BaseStockModel):
         """HD현대 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            data = self.db_manager.get_stock_data('A267250')  # HD현대 종목코드
+            data = self.db_manager.get_stock_data('A017670')  # SK텔레콤 종목코드
             
             if data.empty:
                 self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")

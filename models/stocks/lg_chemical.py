@@ -70,9 +70,9 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
 
-class LGEnergySolutionModel(BaseStockModel):
+class LGChemicalModel(BaseStockModel):
     def __init__(self):
-        """LG에너지솔루션 주가 예측 모델 초기화"""
+        """LG화학 주가 예측 모델 초기화"""
         super().__init__('LG화학', '051910.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화

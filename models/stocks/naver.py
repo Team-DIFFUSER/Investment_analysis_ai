@@ -70,10 +70,10 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
 
-class HanwhaOceanModel(BaseStockModel):
+class NaverModel(BaseStockModel):
     def __init__(self):
-        """한화오션 주가 예측 모델 초기화"""
-        super().__init__('한화오션', '042660.KS')
+        """NAVER 주가 예측 모델 초기화"""
+        super().__init__('NAVER', '035420.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -96,10 +96,10 @@ class HanwhaOceanModel(BaseStockModel):
             self.logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
 
     def load_data(self) -> pd.DataFrame:
-        """한화오션 주가 데이터 로드"""
+        """NAVER 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            data = self.db_manager.get_stock_data('A042660')  # 한화오션 종목코드
+            data = self.db_manager.get_stock_data('A035420')  # NAVER 종목코드
             
             if data.empty:
                 self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")
@@ -191,13 +191,6 @@ class HanwhaOceanModel(BaseStockModel):
                     factor=0.5,
                     patience=8,  # patience 증가
                     min_lr=0.000001,  # 최소 학습률 감소
-                    verbose=0
-                ),
-                tf.keras.callbacks.ModelCheckpoint(
-                    filepath=os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5'),
-                    monitor='val_loss',
-                    save_best_only=True,
-                    save_weights_only=False,
                     verbose=0
                 )
             ]
@@ -418,7 +411,7 @@ class HanwhaOceanModel(BaseStockModel):
             raise
     
     def build_model(self, input_shape: tuple) -> tf.keras.Model:
-        """한화오션 전용 모델 구축"""
+        """NAVER 전용 모델 구축"""
         try:
             # 입력 레이어
             inputs = layers.Input(shape=input_shape)
@@ -632,8 +625,8 @@ class HanwhaOceanModel(BaseStockModel):
             # 예측 결과를 데이터베이스에 저장
             for pred_date, pred_price in zip(prediction_dates, predictions):
                 self.db_manager.save_prediction(
-                    stock_code='A042660',
-                    stock_name='한화오션',
+                    stock_code='A035420',
+                    stock_name='NAVER',
                     prediction_date=datetime.now(),
                     target_date=pred_date,
                     predicted_price=float(pred_price)
