@@ -70,10 +70,10 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
 
-class SamsungHeavyIndustriesModel(BaseStockModel):
+class SKModel(BaseStockModel):
     def __init__(self):
-        """삼성중공업 주가 예측 모델 초기화"""
-        super().__init__('삼성중공업', '010140.KS')
+        """SK 주가 예측 모델 초기화"""
+        super().__init__('SK', '034730.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -96,10 +96,10 @@ class SamsungHeavyIndustriesModel(BaseStockModel):
             self.logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
 
     def load_data(self) -> pd.DataFrame:
-        """삼성중공업 주가 데이터 로드"""
+        """SK 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            data = self.db_manager.get_stock_data('A010140')  # 삼성중공업 종목코드
+            data = self.db_manager.get_stock_data('A034730')  # SK 종목코드
             
             if data.empty:
                 self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")
@@ -411,7 +411,7 @@ class SamsungHeavyIndustriesModel(BaseStockModel):
             raise
     
     def build_model(self, input_shape: tuple) -> tf.keras.Model:
-        """삼성중공업 전용 모델 구축"""
+        """SK 전용 모델 구축"""
         try:
             # 입력 레이어
             inputs = layers.Input(shape=input_shape)
@@ -745,5 +745,5 @@ class SamsungHeavyIndustriesModel(BaseStockModel):
             raise
 
 if __name__ == "__main__":
-    model = SamsungHeavyIndustriesModel()
+    model = SKModel()
     model.train_model()

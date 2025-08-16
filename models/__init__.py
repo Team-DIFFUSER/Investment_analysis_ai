@@ -2,7 +2,7 @@ from .stocks.lg_electronics import LGElectronicsModel
 from .stocks.samsung_electronics import SamsungElectronicsModel
 from .stocks.sk_hynix import SKHynixModel
 from .stocks.samsung_biologics import SamsungBiologicsModel
-from .stocks.lg_chemical import LGEnergySolutionModel
+from .stocks.lg_chemical import LGChemicalModel
 from .stocks.hanwha import HanwhaAerospaceModel
 from .stocks.hyundai_motor import HyundaiMotorModel
 from .stocks.kia import KiaModel
@@ -30,14 +30,17 @@ from .stocks.woori_financial_group import WooriFinancialGroupModel
 from .stocks.hd_hyundai_electric import HDHyundaiElectricModel
 from .stocks.samsung_heavy_industries import SamsungHeavyIndustriesModel
 from .stocks.sk_innovation import SKInnovationModel
+from .stocks.sk_square import SKSquareModel
 from .stocks.samsung_sdi import SamsungSDIModel
 from .stocks.korea_zinc import KoreaZincModel
 from .stocks.kt_g import KTGModel
 from .stocks.krafton import KraftonModel
 from .stocks.industrial_bank_of_korea import IndustrialBankOfKoreaModel
 from .stocks.sk import SKModel
+from .stocks.sk_telecom import SKTelecomModel
 from .stocks.kt import KTModel
 from .stocks.lig_nex1 import LIGNex1Model
+from .stocks.kakao import KakaoModel
 from .stocks.kakao_bank import KakaoBankModel
 
 ALL_STOCK_MODELS = {
@@ -45,7 +48,7 @@ ALL_STOCK_MODELS = {
     '삼성전자': SamsungElectronicsModel,
     'SK하이닉스': SKHynixModel,
     '삼성바이오로직스': SamsungBiologicsModel,
-    'LG화학': LGEnergySolutionModel,
+    'LG화학': LGChemicalModel,
     '한화': HanwhaAerospaceModel,
     '현대차': HyundaiMotorModel,
     '기아': KiaModel,
@@ -74,13 +77,16 @@ ALL_STOCK_MODELS = {
     'HD현대일렉트릭': HDHyundaiElectricModel,
     '삼성중공업': SamsungHeavyIndustriesModel,
     'SK이노베이션': SKInnovationModel,
+    'SK스퀘어': SKSquareModel,
     '삼성SDI': SamsungSDIModel,
     '고려아연': KoreaZincModel,
     'KT&G': KTGModel,
     '크래프톤': KraftonModel,
     '기업은행': IndustrialBankOfKoreaModel,
     'SK': SKModel,
+    'SK텔레콤': SKTelecomModel,
     'KT': KTModel,
     'LIG넥스원': LIGNex1Model,
+    '카카오': KakaoModel,
     '카카오뱅크': KakaoBankModel,
 }
