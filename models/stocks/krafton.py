@@ -70,10 +70,10 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
 
-class SKModel(BaseStockModel):
+class KraftonModel(BaseStockModel):
     def __init__(self):
-        """SK 주가 예측 모델 초기화"""
-        super().__init__('SK', '034730.KS')
+        """크래프톤 주가 예측 모델 초기화"""
+        super().__init__('크래프톤', '259960.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -99,7 +99,7 @@ class SKModel(BaseStockModel):
         """SK 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            data = self.db_manager.get_stock_data('A034730')  # SK 종목코드
+            data = self.db_manager.get_stock_data('A259960')  # 크래프톤 종목코드
             
             if data.empty:
                 self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")

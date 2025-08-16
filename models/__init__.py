@@ -3,7 +3,8 @@ from .stocks.samsung_electronics import SamsungElectronicsModel
 from .stocks.sk_hynix import SKHynixModel
 from .stocks.samsung_biologics import SamsungBiologicsModel
 from .stocks.lg_chemical import LGChemicalModel
-from .stocks.hanwha import HanwhaAerospaceModel
+from .stocks.hanwha import HanwhaModel
+from .stocks.hanwha_aerospace import HanwhaAerospaceModel
 from .stocks.hyundai_motor import HyundaiMotorModel
 from .stocks.kia import KiaModel
 from .stocks.hd_hyundai import HDHyundaiModel
@@ -30,7 +31,6 @@ from .stocks.woori_financial_group import WooriFinancialGroupModel
 from .stocks.hd_hyundai_electric import HDHyundaiElectricModel
 from .stocks.samsung_heavy_industries import SamsungHeavyIndustriesModel
 from .stocks.sk_innovation import SKInnovationModel
-from .stocks.sk_square import SKSquareModel
 from .stocks.samsung_sdi import SamsungSDIModel
 from .stocks.korea_zinc import KoreaZincModel
 from .stocks.kt_g import KTGModel
@@ -49,7 +49,7 @@ ALL_STOCK_MODELS = {
     'SK하이닉스': SKHynixModel,
     '삼성바이오로직스': SamsungBiologicsModel,
     'LG화학': LGChemicalModel,
-    '한화': HanwhaAerospaceModel,
+    '한화': HanwhaModel,
     '현대차': HyundaiMotorModel,
     '기아': KiaModel,
     'HD현대': HDHyundaiModel,
@@ -77,7 +77,6 @@ ALL_STOCK_MODELS = {
     'HD현대일렉트릭': HDHyundaiElectricModel,
     '삼성중공업': SamsungHeavyIndustriesModel,
     'SK이노베이션': SKInnovationModel,
-    'SK스퀘어': SKSquareModel,
     '삼성SDI': SamsungSDIModel,
     '고려아연': KoreaZincModel,
     'KT&G': KTGModel,
