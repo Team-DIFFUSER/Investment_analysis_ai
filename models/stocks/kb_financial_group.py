@@ -70,10 +70,10 @@ np.random.seed(SEED)
 tf.random.set_seed(SEED)
 random.seed(SEED)
 
-class DoosanEnerbilityModel(BaseStockModel):
+class KBFinancialGroupModel(BaseStockModel):
     def __init__(self):
-        """두산에너빌리티 주가 예측 모델 초기화"""
-        super().__init__('두산에너빌리티', '034020.KS')
+        """KB금융 주가 예측 모델 초기화"""
+        super().__init__('KB금융', '105560.KS')
         self.db_manager = DatabaseManager()
         self.n_features = None  # 특성 수 초기화
         self.models = []  # 앙상블 모델 리스트
@@ -96,10 +96,10 @@ class DoosanEnerbilityModel(BaseStockModel):
             self.logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
 
     def load_data(self) -> pd.DataFrame:
-        """두산에너빌리티 주가 데이터 로드"""
+        """KB금융 주가 데이터 로드"""
         try:
             # 데이터베이스에서 주가 데이터 가져오기
-            data = self.db_manager.get_stock_data('A034020')  # 두산에너빌리티 종목코드
+            data = self.db_manager.get_stock_data('A105560')  # KB금융 종목코드
             
             if data.empty:
                 self.logger.error("데이터베이스에서 데이터를 찾을 수 없습니다.")
@@ -191,13 +191,6 @@ class DoosanEnerbilityModel(BaseStockModel):
                     factor=0.5,
                     patience=8,  # patience 증가
                     min_lr=0.000001,  # 최소 학습률 감소
-                    verbose=0
-                ),
-                tf.keras.callbacks.ModelCheckpoint(
-                    filepath=os.path.join('models', 'checkpoints', f'{self.stock_name}_model.h5'),
-                    monitor='val_loss',
-                    save_best_only=True,
-                    save_weights_only=False,
                     verbose=0
                 )
             ]
