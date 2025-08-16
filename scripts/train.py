@@ -12,15 +12,7 @@ import tensorflow as tf
 # 프로젝트 루트 디렉토리를 Python 경로에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.stocks.lg_electronics import LGElectronicsModel
-from models.stocks.samsung_electronics import SamsungElectronicsModel
-from models.stocks.sk_hynix import SKHynixModel
-from models.stocks.samsung_biologics import SamsungBiologicsModel
-from models.stocks.lg_chemical import LGEnergySolutionModel
-from models.stocks.hanwha import HanwhaAerospaceModel
-from models.stocks.hyundai_motor import HyundaiMotorModel
-from models.stocks.kia import KiaModel
-from models.stocks.hd_hyundai import HDHyundaiModel
+from models import ALL_STOCK_MODELS
 from database.database import DatabaseManager
 
 # 로깅 설정
@@ -84,18 +76,7 @@ class StockTrainer:
         """모든 모델 초기화"""
         try:
             # 여기에 새로운 종목 모델들을 추가
-            self.models = {
-                'LG전자': LGElectronicsModel(),
-                '삼성전자': SamsungElectronicsModel(),
-                'SK하이닉스': SKHynixModel(),
-                '삼성바이오로직스': SamsungBiologicsModel(),
-                'LG화학': LGEnergySolutionModel(),
-                '한화': HanwhaAerospaceModel(),
-                '현대차': HyundaiMotorModel(),
-                '기아': KiaModel(),
-                'HD현대': HDHyundaiModel(),
-                # ... 다른 종목들 추가
-            }
+            self.models = {name: model_class() for name, model_class in ALL_STOCK_MODELS.items()}
             logger.info(f"초기화된 모델 수: {len(self.models)}")
         except Exception as e:
             logger.error(f"모델 초기화 중 오류 발생: {str(e)}")
