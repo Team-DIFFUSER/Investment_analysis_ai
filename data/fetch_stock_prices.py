@@ -14,14 +14,21 @@ import pytz
 import logging
 
 # =================================================================================
-# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드 (v3)
+# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드 (v4 - Meta Debug)
 # =================================================================================
+print("!!! DEBUG-V4: PATCH CODE BLOCK IS RUNNING !!!") # Check if this block runs
+import sys
 # pykrx.stock.api를 임포트하면 내부적으로 pykrx.helper도 로드됩니다.
 import pykrx.stock.api
-import sys
+
+print("!!! DEBUG-V4: pykrx modules in sys.modules: !!!")
+pykrx_modules = [name for name in sys.modules if 'pykrx' in name]
+print(pykrx_modules)
+
 
 # 로드된 pykrx.helper 모듈을 sys.modules에서 직접 찾습니다.
 if 'pykrx.helper' in sys.modules:
+    print("!!! DEBUG-V4: Found 'pykrx.helper' in sys.modules. Applying patch. !!!")
     helper_module = sys.modules['pykrx.helper']
 
     # 원래 요청 함수를 직접 구현하여 중간에 응답을 확인합니다.
@@ -45,6 +52,9 @@ if 'pykrx.helper' in sys.modules:
 
     # pykrx.helper 모듈 자체의 request_post 함수를 디버깅 함수로 교체합니다.
     helper_module.request_post = _debug_request_post
+    print("!!! DEBUG-V4: Patch applied successfully. !!!")
+else:
+    print("!!! DEBUG-V4: COULD NOT FIND 'pykrx.helper' in sys.modules. Patch failed. !!!")
 # =================================================================================
 
 
