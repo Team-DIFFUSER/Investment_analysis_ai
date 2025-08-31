@@ -95,6 +95,144 @@ class HanwhaModel(BaseStockModel):
         except Exception as e:
             self.logger.error(f"데이터베이스 연결 종료 중 오류 발생: {str(e)}")
 
+    def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
+        """데이터 전처리 강화"""
+        try:
+            if len(data) < 120:
+                self.logger.error(f"데이터가 너무 적어({len(data)} 행) 보조지표를 계산할 수 없습니다. 최소 120행이 필요합니다.")
+                return pd.DataFrame()
+
+            # Decimal 타입을 float로 변환
+            numeric_columns = ['open_price', 'high_price', 'low_price', 'close_price', 'volume']
+            for col in numeric_columns:
+                if col in data.columns:
+                    data[col] = data[col].astype(float)
+            
+            # 기본 기술적 지표
+            data['MA5'] = data['close_price'].rolling(window=5, min_periods=1).mean()
+            data['MA20'] = data['close_price'].rolling(window=20, min_periods=1).mean()
+            data['MA60'] = data['close_price'].rolling(window=60, min_periods=1).mean()
+            data['MA120'] = data['close_price'].rolling(window=120, min_periods=1).mean()
+            
+            # 볼린저 밴드
+            data['BB_middle'] = data['close_price'].rolling(window=20, min_periods=1).mean()
+            data['BB_std'] = data['close_price'].rolling(window=20, min_periods=1).std()
+            data['BB_upper'] = data['BB_middle'] + (data['BB_std'] * 2)
+            data['BB_lower'] = data['BB_middle'] - (data['BB_std'] * 2)
+            
+            # RSI
+            delta = data['close_price'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14, min_periods=1).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
+            rs = gain / loss
+            data['RSI'] = 100 - (100 / (1 + rs))
+            
+            # MACD
+            exp1 = data['close_price'].ewm(span=12, adjust=False).mean()
+            exp2 = data['close_price'].ewm(span=26, adjust=False).mean()
+            data['MACD'] = exp1 - exp2
+            data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
+            data['MACD_Histogram'] = data['MACD'] - data['Signal_Line']
+            
+            # 스토캐스틱
+            low_min = data['low_price'].rolling(window=14, min_periods=1).min()
+            high_max = data['high_price'].rolling(window=14, min_periods=1).max()
+            data['Stoch_K'] = 100 * ((data['close_price'] - low_min) / (high_max - low_min))
+            data['Stoch_D'] = data['Stoch_K'].rolling(window=3, min_periods=1).mean()
+            
+            # ATR (Average True Range)
+            tr1 = data['high_price'] - data['low_price']
+            tr2 = abs(data['high_price'] - data['close_price'].shift())
+            tr3 = abs(data['low_price'] - data['close_price'].shift())
+            data['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            data['ATR'] = data['TR'].rolling(window=14, min_periods=1).mean()
+            
+            # 거래량 지표
+            data['Volume_MA5'] = data['volume'].rolling(window=5, min_periods=1).mean()
+            data['Volume_MA20'] = data['volume'].rolling(window=20, min_periods=1).mean()
+            data['Volume_Ratio'] = data['volume'] / data['Volume_MA20']
+            
+            # 가격 변화율
+            data['Price_Change'] = data['close_price'].pct_change()
+            data['Price_Change_MA5'] = data['Price_Change'].rolling(window=5, min_periods=1).mean()
+            data['Price_Change_MA20'] = data['Price_Change'].rolling(window=20, min_periods=1).mean()
+            
+            # 변동성
+            data['Volatility'] = data['close_price'].rolling(window=20, min_periods=1).std()
+            data['Volatility_MA5'] = data['Volatility'].rolling(window=5, min_periods=1).mean()
+            
+            # 모멘텀 지표
+            data['ROC'] = data['close_price'].pct_change(periods=10) * 100
+            data['Momentum'] = data['close_price'] - data['close_price'].shift(10)
+            
+            # 추세 강도
+            data['ADX'] = self._calculate_adx(data)
+            
+            # 무한대 값 처리
+            data = data.replace([np.inf, -np.inf], np.nan)
+            
+            # 결측치 처리 - 더 강력한 방법 사용
+            # 먼저 전방향 채우기
+            data = data.fillna(method='ffill')
+            # 후방향 채우기
+            data = data.fillna(method='bfill')
+            # 남은 결측치는 0으로 채우기
+            data = data.fillna(0)
+            
+            # 최종 검증 - 여전히 NaN이 있는지 확인
+            if data.isnull().any().any():
+                self.logger.warning("전처리 후에도 NaN 값이 남아있습니다. 추가 처리 중...")
+                # 각 컬럼별로 개별 처리
+                for col in data.columns:
+                    if data[col].isnull().any():
+                        if col in ['open_price', 'high_price', 'low_price', 'close_price']:
+                            # 가격 데이터는 이전 값으로 채우기
+                            data[col] = data[col].fillna(method='ffill').fillna(method='bfill')
+                        else:
+                            # 기술적 지표는 0으로 채우기
+                            data[col] = data[col].fillna(0)
+            
+            self.logger.info(f"전처리 완료: 데이터 형태 {data.shape}, NaN 개수: {data.isnull().sum().sum()}")
+            
+            return data
+            
+        except Exception as e:
+            self.logger.error(f"데이터 전처리 중 오류 발생: {str(e)}")
+            return pd.DataFrame()
+            
+    def _calculate_adx(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
+        """ADX (Average Directional Index) 계산"""
+        try:
+            # True Range
+            tr1 = data['high_price'] - data['low_price']
+            tr2 = abs(data['high_price'] - data['close_price'].shift())
+            tr3 = abs(data['low_price'] - data['close_price'].shift())
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            atr = tr.rolling(window=period, min_periods=1).mean()
+            
+            # Directional Movement
+            up_move = data['high_price'] - data['high_price'].shift()
+            down_move = data['low_price'].shift() - data['low_price']
+            
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+            
+            plus_di = 100 * (pd.Series(plus_dm).rolling(window=period, min_periods=1).mean() / atr)
+            minus_di = 100 * (pd.Series(minus_dm).rolling(window=period, min_periods=1).mean() / atr)
+            
+            # ADX
+            dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+            adx = dx.rolling(window=period, min_periods=1).mean()
+            
+            # NaN 값 처리
+            adx = adx.fillna(0)
+            
+            return adx
+            
+        except Exception as e:
+            self.logger.error(f"ADX 계산 중 오류 발생: {str(e)}")
+            return pd.Series([0] * len(data))
+
     def load_data(self) -> pd.DataFrame:
         """한화 주가 데이터 로드"""
         try:
