@@ -909,6 +909,10 @@ class SKHynixModel(BaseStockModel):
     def enhanced_preprocessing(self, data: pd.DataFrame) -> pd.DataFrame:
         """데이터 전처리 강화"""
         try:
+            if len(data) < 120:
+                self.logger.error(f"데이터가 너무 적어({len(data)} 행) 보조지표를 계산할 수 없습니다. 최소 120행이 필요합니다.")
+                return pd.DataFrame()
+
             # Decimal 타입을 float로 변환
             numeric_columns = ['open_price', 'high_price', 'low_price', 'close_price', 'volume']
             for col in numeric_columns:
