@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 import time
+import random
 from requests.exceptions import RequestException
 import json
 import requests
@@ -10,6 +11,11 @@ from datetime import datetime, timedelta
 import FinanceDataReader as fdr
 import numpy as np
 import pytz
+import logging
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # 현재 파일의 절대 경로
 current_file = Path(__file__).resolve()
@@ -69,16 +75,38 @@ def clean_stock_code(stock_code):
     """종목코드에서 'A' 접두사 제거"""
     return stock_code.replace('A', '')
 
+def fetch_stock_data_with_retry(stock_code, start_date, end_date, max_retries=3, delay=2):
+    """재시도 로직이 포함된 주가 데이터 수집"""
+    for attempt in range(max_retries):
+        try:
+            # API 호출 간격 조절 (rate limiting 방지)
+            if attempt > 0:
+                sleep_time = delay + random.uniform(0.5, 2.0)
+                time.sleep(sleep_time)
+            
+            return fetch_stock_data(stock_code, start_date, end_date)
+            
+        except (json.JSONDecodeError, requests.exceptions.RequestException) as e:
+            if attempt == max_retries - 1:
+                logger.error(f"종목 {stock_code} 최대 재시도 횟수 초과: {e}")
+                return None, 0
+            else:
+                logger.warning(f"종목 {stock_code} {attempt+1}번째 시도 실패, 재시도 중...: {e}")
+                continue
+        except Exception as e:
+            logger.error(f"종목 {stock_code} 예상치 못한 오류: {e}")
+            return None, 0
+    
+    return None, 0
+
 def fetch_stock_data(stock_code, start_date, end_date):
-    """PyKrx를 사용하여 주식 데이터 가져오기 (오늘 날짜만)"""
+    """개별 종목의 주가 데이터를 가져옵니다."""
     try:
-        # 종목코드 정리
-        clean_code = clean_stock_code(stock_code)
-        print(f"  - 정리된 종목코드: {clean_code}")
+        # 종목코드 정리 (A 제거)
+        clean_code = stock_code.replace('A', '')
         
-        # 일별 OHLCV 데이터 가져오기
         print(f"  - 주가 데이터 가져오기 시도 중...")
-        print(f"  - 조회일: {start_date}")  # start_date와 end_date가 같으므로 하나만 표시
+        print(f"  - 조회일: {start_date}")
         
         try:
             # 종목명 먼저 확인
@@ -115,22 +143,30 @@ def fetch_stock_data(stock_code, start_date, end_date):
             df = df.reset_index()
             df = df.rename(columns={'날짜': 'time'})
             
-            # 시가총액 데이터 가져오기 (오늘 날짜만)
+            # 시가총액 데이터 가져오기 (오늘 날짜만) - 에러 처리 강화
             try:
                 market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
-                if not market_cap.empty:
+                if not market_cap.empty and '시가총액' in market_cap.columns:
                     df['market_cap'] = market_cap['시가총액']
+                else:
+                    df['market_cap'] = None
             except Exception as e:
                 print(f"  - 시가총액 데이터 가져오기 실패: {str(e)}")
+                df['market_cap'] = None
             
-            # 외국인/기관 보유량 데이터 가져오기 (오늘 날짜만)
+            # 외국인/기관 보유량 데이터 가져오기 (오늘 날짜만) - 에러 처리 강화
             try:
                 foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
-                if not foreign_holding.empty:
+                if not foreign_holding.empty and '외국인보유량' in foreign_holding.columns:
                     df['foreign_holding'] = foreign_holding['외국인보유량']
                     df['foreign_holding_ratio'] = foreign_holding['외국인보유비율']
+                else:
+                    df['foreign_holding'] = None
+                    df['foreign_holding_ratio'] = None
             except Exception as e:
                 print(f"  - 외국인 보유량 데이터 가져오기 실패: {str(e)}")
+                df['foreign_holding'] = None
+                df['foreign_holding_ratio'] = None
             
             print(f"  - {start_date} 주가 데이터 가져오기 성공!")
             print(f"  - 데이터 샘플:\n{df.head()}")
@@ -139,7 +175,12 @@ def fetch_stock_data(stock_code, start_date, end_date):
         except json.JSONDecodeError as e:
             print(f"  - API 응답 파싱 실패: {str(e)}")
             print(f"  - API 응답이 유효한 JSON 형식이 아닙니다.")
-            return None, 0
+            # JSON 파싱 실패 시 재시도 필요
+            raise
+        except requests.exceptions.RequestException as e:
+            print(f"  - API 요청 실패: {str(e)}")
+            print(f"  - 네트워크 오류 또는 API 서버 문제")
+            raise
         except Exception as e:
             print(f"  - 데이터 가져오기 실패: {str(e)}")
             print(f"  - 상세 정보: {type(e).__name__}")
@@ -192,7 +233,11 @@ def fetch_stock_prices():
         
         print(f"🔄 ({idx+1}/{len(stock_list)}) {stock_name}({stock_code}) {start_date} 데이터 수집 중...")
         
-        df, count = fetch_stock_data(stock_code, start_date, end_date)
+        # API 호출 간격 조절 (rate limiting 방지)
+        if idx > 0:
+            time.sleep(random.uniform(0.5, 1.5))
+        
+        df, count = fetch_stock_data_with_retry(stock_code, start_date, end_date)
         
         if df is not None and not df.empty:
             all_stock_data.append(df)
