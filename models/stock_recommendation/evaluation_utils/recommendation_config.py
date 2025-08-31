@@ -30,9 +30,9 @@ class RecommendationConfig:
             'metrics': ['MAE', 'RMSE', 'MAPE', '방향정확도', '상관계수', '평균신뢰도']
         }
         
-        # 추천 설정
+        # 추천 설정 (22개 종목 중 상위 3개)
         self.recommendation_config = {
-            'top_n': 10,
+            'top_n': 3,  # 22개 종목 중 상위 3개 추천
             'min_confidence': 0.6,
             'max_volatility': 0.3,
             'min_market_cap': 1000000000,
@@ -47,7 +47,7 @@ class RecommendationConfig:
                 '수익률': 0.4,
                 '변동성': 0.1,
                 '감성': 0.3,
-                '재무': 0.2  # 재무제표 가중치 추가
+                '재무': 0.2  
             },
             '적극투자형': {
                 '수익률': 0.35,
