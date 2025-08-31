@@ -14,31 +14,37 @@ import pytz
 import logging
 
 # =================================================================================
-# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드 (v2)
+# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드 (v3)
 # =================================================================================
-import pykrx.stock.api as stock_api # pykrx의 내부 api 모듈을 import
+# pykrx.stock.api를 임포트하면 내부적으로 pykrx.helper도 로드됩니다.
+import pykrx.stock.api
+import sys
 
-# pykrx의 원래 요청 함수를 직접 구현하여 중간에 응답을 확인합니다.
-def _debug_request_post(url, data, headers):
-    response = requests.post(url, data=data, headers=headers)
-    try:
-        # JSON 파싱 시도
-        return response.json()
-    except json.JSONDecodeError as e:
-        # JSON 파싱 실패 시, 실제 응답 내용을 출력
-        print("="*50)
-        print("DEBUG: API가 JSON이 아닌 다른 응답을 반환했습니다.")
-        print(f"URL: {url}")
-        print(f"Request Data: {data}")
-        print(f"Status Code: {response.status_code}")
-        print("--- Response Text (first 500 chars) ---")
-        print(response.text[:500])
-        print("="*50)
-        # 원래 에러를 다시 발생시켜 프로그램 흐름을 유지
-        raise e
+# 로드된 pykrx.helper 모듈을 sys.modules에서 직접 찾습니다.
+if 'pykrx.helper' in sys.modules:
+    helper_module = sys.modules['pykrx.helper']
 
-# pykrx.stock.api 모듈에 있는 request_post 함수를 디버깅 함수로 교체 (Monkey Patch)
-stock_api.request_post = _debug_request_post
+    # 원래 요청 함수를 직접 구현하여 중간에 응답을 확인합니다.
+    def _debug_request_post(url, data, headers):
+        response = requests.post(url, data=data, headers=headers)
+        try:
+            # JSON 파싱 시도
+            return response.json()
+        except json.JSONDecodeError as e:
+            # JSON 파싱 실패 시, 실제 응답 내용을 출력
+            print("="*50)
+            print("DEBUG: API가 JSON이 아닌 다른 응답을 반환했습니다.")
+            print(f"URL: {url}")
+            print(f"Request Data: {data}")
+            print(f"Status Code: {response.status_code}")
+            print("--- Response Text (first 500 chars) ---")
+            print(response.text[:500])
+            print("="*50)
+            # 원래 에러를 다시 발생시켜 프로그램 흐름을 유지
+            raise e
+
+    # pykrx.helper 모듈 자체의 request_post 함수를 디버깅 함수로 교체합니다.
+    helper_module.request_post = _debug_request_post
 # =================================================================================
 
 
