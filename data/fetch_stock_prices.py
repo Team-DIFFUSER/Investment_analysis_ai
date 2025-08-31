@@ -14,47 +14,44 @@ import pytz
 import logging
 
 # =================================================================================
-# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드 (v4 - Meta Debug)
+# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드 (v5 - Final)
 # =================================================================================
-print("!!! DEBUG-V4: PATCH CODE BLOCK IS RUNNING !!!") # Check if this block runs
 import sys
-# pykrx.stock.api를 임포트하면 내부적으로 pykrx.helper도 로드됩니다.
-import pykrx.stock.api
+import json
+# pykrx의 웹 요청 모듈을 직접 import
+import pykrx.website.comm.webio as webio
 
-print("!!! DEBUG-V4: pykrx modules in sys.modules: !!!")
-pykrx_modules = [name for name in sys.modules if 'pykrx' in name]
-print(pykrx_modules)
+print("!!! DEBUG-V5: PATCHING pykrx.website.comm.webio.WebIo.fetch !!!")
 
+# 원본 fetch 메서드를 저장
+_original_fetch = webio.WebIo.fetch
 
-# 로드된 pykrx.helper 모듈을 sys.modules에서 직접 찾습니다.
-if 'pykrx.helper' in sys.modules:
-    print("!!! DEBUG-V4: Found 'pykrx.helper' in sys.modules. Applying patch. !!!")
-    helper_module = sys.modules['pykrx.helper']
+# 디버깅을 위한 fetch 메서드 재정의
+def _debug_fetch(self, *args, **kwargs):
+    # 원본 메서드를 호출하여 실제 응답을 받음
+    response_text = _original_fetch(self, *args, **kwargs)
+    
+    # 응답이 JSON인지 간단히 확인
+    try:
+        json.loads(response_text)
+        # JSON으로 파싱이 성공하면, 아무것도 안하고 원래 응답을 반환
+        return response_text
+    except json.JSONDecodeError:
+        # JSON 파싱 실패 시, 디버그 정보 출력
+        print("="*50)
+        print("DEBUG: API가 JSON이 아닌 다른 응답을 반환했습니다.")
+        # 인자(args)에 URL과 파라미터가 포함되어 있음
+        print(f"Request Args: {args}")
+        print(f"Request Kwargs: {kwargs}")
+        print("--- Response Text (first 500 chars) ---")
+        print(response_text[:500])
+        print("="*50)
+        # 원래 응답을 그대로 반환하여, 원래 코드에서 에러가 발생하도록 함
+        return response_text
 
-    # 원래 요청 함수를 직접 구현하여 중간에 응답을 확인합니다.
-    def _debug_request_post(url, data, headers):
-        response = requests.post(url, data=data, headers=headers)
-        try:
-            # JSON 파싱 시도
-            return response.json()
-        except json.JSONDecodeError as e:
-            # JSON 파싱 실패 시, 실제 응답 내용을 출력
-            print("="*50)
-            print("DEBUG: API가 JSON이 아닌 다른 응답을 반환했습니다.")
-            print(f"URL: {url}")
-            print(f"Request Data: {data}")
-            print(f"Status Code: {response.status_code}")
-            print("--- Response Text (first 500 chars) ---")
-            print(response.text[:500])
-            print("="*50)
-            # 원래 에러를 다시 발생시켜 프로그램 흐름을 유지
-            raise e
-
-    # pykrx.helper 모듈 자체의 request_post 함수를 디버깅 함수로 교체합니다.
-    helper_module.request_post = _debug_request_post
-    print("!!! DEBUG-V4: Patch applied successfully. !!!")
-else:
-    print("!!! DEBUG-V4: COULD NOT FIND 'pykrx.helper' in sys.modules. Patch failed. !!!")
+# WebIo 클래스의 fetch 메서드를 디버깅용으로 교체
+webio.WebIo.fetch = _debug_fetch
+print("!!! DEBUG-V5: Patch applied successfully. !!!")
 # =================================================================================
 
 
