@@ -250,6 +250,64 @@ class SKTelecomModel(BaseStockModel):
             self.logger.error(f"데이터 로드 중 오류 발생: {str(e)}")
             return pd.DataFrame()
 
+    def prepare_data(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+        """학습 데이터 준비"""
+        try:
+            if data.empty:
+                self.logger.error("입력 데이터가 비어있습니다.")
+                return np.array([]), np.array([])
+
+            # 필요한 특성 목록 (16개 - 기존 모델과 호환)
+            features = [
+                'open_price', 'high_price', 'low_price', 'close_price', 'volume',
+                'MA5', 'MA20', 'MA60', 'MA120',
+                'BB_middle', 'BB_std', 'BB_upper', 'BB_lower',
+                'RSI', 'MACD', 'Signal_Line', 'MACD_Histogram'
+            ]
+
+            # 누락된 특성 확인
+            missing_features = [f for f in features if f not in data.columns]
+            if missing_features:
+                self.logger.error(f"누락된 특성들: {missing_features}")
+                return np.array([]), np.array([])
+
+            # 데이터 스케일링
+            feature_data = data[features].copy()
+            self.logger.info(f"스케일링 전 데이터 형태: {feature_data.shape}")
+            
+            # 결측치 확인 및 처리
+            if feature_data.isnull().any().any():
+                self.logger.warning("스케일러 적용 전 NaN 값 발견. 추가 처리 중...")
+                feature_data = feature_data.fillna(method='ffill').fillna(method='bfill').fillna(0)
+                data[features] = feature_data
+            
+            # 무한대 값 처리
+            data[features] = data[features].replace([np.inf, -np.inf], 0)
+            
+            # 전체 데이터로 스케일러 학습
+            self.scaler.fit(data[features])
+            
+            # 스케일링 적용
+            scaled_features = self.scaler.transform(data[features])
+            
+            # 시퀀스 데이터 생성
+            X, y = [], []
+            sequence_length = 20
+            
+            for i in range(sequence_length, len(scaled_features)):
+                X.append(scaled_features[i-sequence_length:i])
+                y.append(scaled_features[i, 3])  # close_price (4번째 컬럼)
+            
+            X = np.array(X)
+            y = np.array(y)
+            
+            self.logger.info(f"데이터 준비 완료: X shape={X.shape}, y shape={y.shape}")
+            return X, y
+            
+        except Exception as e:
+            self.logger.error(f"데이터 준비 중 오류 발생: {str(e)}")
+            return np.array([]), np.array([])
+
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Any]:
         """학습 데이터 준비"""
         try:
@@ -404,9 +462,9 @@ class SKTelecomModel(BaseStockModel):
             # 예측 수행
             prediction = self.predict(X[-1:])
             
-            # 예측값 역변환
+            # 예측값 역변환 (16개 특성에 맞춤)
             prediction = self.scaler.inverse_transform(
-                np.concatenate([np.zeros((1, 3)), prediction.reshape(-1, 1), np.zeros((1, 16))], axis=1)
+                np.concatenate([np.zeros((1, 3)), prediction.reshape(-1, 1), np.zeros((1, 11))], axis=1)
             )[0, 3]
             
             # 예측 결과 저장
