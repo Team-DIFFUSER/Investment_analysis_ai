@@ -14,9 +14,9 @@ import pytz
 import logging
 
 # =================================================================================
-# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드
+# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드 (v2)
 # =================================================================================
-import pykrx.helper
+import pykrx.stock.api as stock_api # pykrx의 내부 api 모듈을 import
 
 # pykrx의 원래 요청 함수를 직접 구현하여 중간에 응답을 확인합니다.
 def _debug_request_post(url, data, headers):
@@ -37,8 +37,8 @@ def _debug_request_post(url, data, headers):
         # 원래 에러를 다시 발생시켜 프로그램 흐름을 유지
         raise e
 
-# pykrx의 내부 요청 함수를 위에서 만든 디버깅 함수로 교체
-pykrx.helper.request_post = _debug_request_post
+# pykrx.stock.api 모듈에 있는 request_post 함수를 디버깅 함수로 교체 (Monkey Patch)
+stock_api.request_post = _debug_request_post
 # =================================================================================
 
 
