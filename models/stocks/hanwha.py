@@ -114,11 +114,10 @@ class HanwhaModel(BaseStockModel):
             data['MA60'] = data['close_price'].rolling(window=60, min_periods=1).mean()
             data['MA120'] = data['close_price'].rolling(window=120, min_periods=1).mean()
             
-            # 볼린저 밴드
-            data['BB_middle'] = data['close_price'].rolling(window=20, min_periods=1).mean()
+            # 볼린저 밴드 (BB_middle은 MA20과 동일하므로 제거)
             data['BB_std'] = data['close_price'].rolling(window=20, min_periods=1).std()
-            data['BB_upper'] = data['BB_middle'] + (data['BB_std'] * 2)
-            data['BB_lower'] = data['BB_middle'] - (data['BB_std'] * 2)
+            data['BB_upper'] = data['MA20'] + (data['BB_std'] * 2)
+            data['BB_lower'] = data['MA20'] - (data['BB_std'] * 2)
             
             # RSI
             delta = data['close_price'].diff()
@@ -643,7 +642,7 @@ class HanwhaModel(BaseStockModel):
             if processed_data.empty:
                 raise ValueError("데이터 전처리 실패")
             
-            # 학습 데이터로 스케일러 fit
+            # 학습 데이터로 스케일러 fit (16개 특성)
             features = [
                 'open_price',
                 'high_price',
@@ -654,7 +653,6 @@ class HanwhaModel(BaseStockModel):
                 'MA20',
                 'MA60',
                 'MA120',
-                'BB_middle',
                 'BB_std',
                 'BB_upper',
                 'BB_lower',
