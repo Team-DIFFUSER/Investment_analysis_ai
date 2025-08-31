@@ -134,39 +134,39 @@ class SamsungHeavyIndustriesModel(BaseStockModel):
             data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
             data['MACD_Histogram'] = data['MACD'] - data['Signal_Line']
             
-            # 스토캐스틱
-            low_min = data['low_price'].rolling(window=14, min_periods=1).min()
-            high_max = data['high_price'].rolling(window=14, min_periods=1).max()
-            data['Stoch_K'] = 100 * ((data['close_price'] - low_min) / (high_max - low_min))
-            data['Stoch_D'] = data['Stoch_K'].rolling(window=3, min_periods=1).mean()
+            # 스토캐스틱 (16개 특성만 사용하므로 제거)
+            # low_min = data['low_price'].rolling(window=14, min_periods=1).min()
+            # high_max = data['high_price'].rolling(window=14, min_periods=1).max()
+            # data['Stoch_K'] = 100 * ((data['close_price'] - low_min) / (high_max - low_min))
+            # data['Stoch_D'] = data['Stoch_K'].rolling(window=3, min_periods=1).mean()
             
-            # ATR (Average True Range)
-            tr1 = data['high_price'] - data['low_price']
-            tr2 = abs(data['high_price'] - data['close_price'].shift())
-            tr3 = abs(data['low_price'] - data['close_price'].shift())
-            data['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            data['ATR'] = data['TR'].rolling(window=14, min_periods=1).mean()
+            # ATR (16개 특성만 사용하므로 제거)
+            # tr1 = data['high_price'] - data['low_price']
+            # tr2 = abs(data['high_price'] - data['close_price'].shift())
+            # tr3 = abs(data['low_price'] - data['close_price'].shift())
+            # data['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            # data['ATR'] = data['TR'].rolling(window=14, min_periods=1).mean()
             
-            # 거래량 지표
-            data['Volume_MA5'] = data['volume'].rolling(window=5, min_periods=1).mean()
-            data['Volume_MA20'] = data['volume'].rolling(window=20, min_periods=1).mean()
-            data['Volume_Ratio'] = data['volume'] / data['Volume_MA20']
+            # 거래량 지표 (16개 특성만 사용하므로 제거)
+            # data['Volume_MA5'] = data['volume'].rolling(window=5, min_periods=1).mean()
+            # data['Volume_MA20'] = data['volume'].rolling(window=20, min_periods=1).mean()
+            # data['Volume_Ratio'] = data['volume'] / data['Volume_MA20']
             
-            # 가격 변화율
-            data['Price_Change'] = data['close_price'].pct_change()
-            data['Price_Change_MA5'] = data['Price_Change'].rolling(window=5, min_periods=1).mean()
-            data['Price_Change_MA20'] = data['Price_Change'].rolling(window=20, min_periods=1).mean()
+            # 가격 변화율 (16개 특성만 사용하므로 제거)
+            # data['Price_Change'] = data['close_price'].pct_change()
+            # data['Price_Change_MA5'] = data['Price_Change'].rolling(window=5, min_periods=1).mean()
+            # data['Price_Change_MA20'] = data['Price_Change'].rolling(window=20, min_periods=1).mean()
             
-            # 변동성
-            data['Volatility'] = data['close_price'].rolling(window=20, min_periods=1).std()
-            data['Volatility_MA5'] = data['Volatility'].rolling(window=5, min_periods=1).mean()
+            # 변동성 (16개 특성만 사용하므로 제거)
+            # data['Volatility'] = data['close_price'].rolling(window=20, min_periods=1).std()
+            # data['Volatility_MA5'] = data['Volatility'].rolling(window=5, min_periods=1).mean()
             
-            # 모멘텀 지표
-            data['ROC'] = data['close_price'].pct_change(periods=10) * 100
-            data['Momentum'] = data['close_price'] - data['close_price'].shift(10)
+            # 모멘텀 지표 (16개 특성만 사용하므로 제거)
+            # data['ROC'] = data['close_price'].pct_change(periods=10) * 100
+            # data['Momentum'] = data['close_price'] - data['close_price'].shift(10)
             
-            # 추세 강도
-            data['ADX'] = self._calculate_adx(data)
+            # 추세 강도 (16개 특성만 사용하므로 제거)
+            # data['ADX'] = self._calculate_adx(data)
             
             # 무한대 값 처리
             data = data.replace([np.inf, -np.inf], np.nan)
@@ -200,38 +200,7 @@ class SamsungHeavyIndustriesModel(BaseStockModel):
             self.logger.error(f"데이터 전처리 중 오류 발생: {str(e)}")
             return pd.DataFrame()
             
-    def _calculate_adx(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
-        """ADX (Average Directional Index) 계산"""
-        try:
-            # True Range
-            tr1 = data['high_price'] - data['low_price']
-            tr2 = abs(data['high_price'] - data['close_price'].shift())
-            tr3 = abs(data['low_price'] - data['close_price'].shift())
-            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            atr = tr.rolling(window=period, min_periods=1).mean()
-            
-            # Directional Movement
-            up_move = data['high_price'] - data['high_price'].shift()
-            down_move = data['low_price'].shift() - data['low_price']
-            
-            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
-            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
-            
-            plus_di = 100 * (pd.Series(plus_dm).rolling(window=period, min_periods=1).mean() / atr)
-            minus_di = 100 * (pd.Series(minus_dm).rolling(window=period, min_periods=1).mean() / atr)
-            
-            # ADX
-            dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
-            adx = dx.rolling(window=period, min_periods=1).mean()
-            
-            # NaN 값 처리
-            adx = adx.fillna(0)
-            
-            return adx
-            
-        except Exception as e:
-            self.logger.error(f"ADX 계산 중 오류 발생: {str(e)}")
-            return pd.Series([0] * len(data))
+    # ADX 메서드 제거 (16개 특성만 사용하므로)
 
     def load_data(self) -> pd.DataFrame:
         """삼성중공업 주가 데이터 로드"""
@@ -676,15 +645,23 @@ class SamsungHeavyIndustriesModel(BaseStockModel):
             
             # 학습 데이터로 스케일러 fit
             features = [
-                'open_price', 'high_price', 'low_price', 'close_price', 'volume',
-                'MA5', 'MA20', 'MA60', 'MA120',
-                'BB_middle', 'BB_std', 'BB_upper', 'BB_lower',
-                'RSI', 'MACD', 'Signal_Line', 'MACD_Histogram',
-                'Stoch_K', 'Stoch_D', 'ATR',
-                'Volume_MA5', 'Volume_MA20', 'Volume_Ratio',
-                'Price_Change', 'Price_Change_MA5', 'Price_Change_MA20',
-                'Volatility', 'Volatility_MA5',
-                'ROC', 'Momentum', 'ADX'
+                'open_price',
+                'high_price',
+                'low_price',
+                'close_price',
+                'volume',
+                'MA5',
+                'MA20',
+                'MA60',
+                'MA120',
+                'BB_middle',
+                'BB_std',
+                'BB_upper',
+                'BB_lower',
+                'RSI',
+                'MACD',
+                'Signal_Line',
+                'MACD_Histogram'
             ]
 
             # 스케일러 적용 전 NaN 검증
