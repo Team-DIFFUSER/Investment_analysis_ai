@@ -13,6 +13,35 @@ import numpy as np
 import pytz
 import logging
 
+# =================================================================================
+# DEBUG: pykrx의 API 응답을 확인하기 위한 임시 코드
+# =================================================================================
+import pykrx.helper
+
+# pykrx의 원래 요청 함수를 직접 구현하여 중간에 응답을 확인합니다.
+def _debug_request_post(url, data, headers):
+    response = requests.post(url, data=data, headers=headers)
+    try:
+        # JSON 파싱 시도
+        return response.json()
+    except json.JSONDecodeError as e:
+        # JSON 파싱 실패 시, 실제 응답 내용을 출력
+        print("="*50)
+        print("DEBUG: API가 JSON이 아닌 다른 응답을 반환했습니다.")
+        print(f"URL: {url}")
+        print(f"Request Data: {data}")
+        print(f"Status Code: {response.status_code}")
+        print("--- Response Text (first 500 chars) ---")
+        print(response.text[:500])
+        print("="*50)
+        # 원래 에러를 다시 발생시켜 프로그램 흐름을 유지
+        raise e
+
+# pykrx의 내부 요청 함수를 위에서 만든 디버깅 함수로 교체
+pykrx.helper.request_post = _debug_request_post
+# =================================================================================
+
+
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
