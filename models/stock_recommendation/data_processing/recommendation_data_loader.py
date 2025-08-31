@@ -103,12 +103,140 @@ class RecommendationDataLoader:
             raise
 
     def load_price_predictions(self):
-        """가격 예측 데이터 로드"""
+        """가격 예측 데이터 로드 (22개 종목만)"""
         try:
+            # 가격 예측이 가능한 22개 종목 리스트
+            available_stocks = [
+                'SK하이닉스', '한화', 'LG전자', '삼성전자', 'LG화학', 'NAVER', '기아', 
+                '삼성바이오로직스', '현대모비스', 'HD현대', '삼성생명', '삼성화재', 
+                '현대차', 'HD현대일렉트릭', '삼성중공업', 'SK이노베이션', '삼성SDI', 
+                'SK텔레콤', 'SK', '카카오', '현대로템', '카카오뱅크'
+            ]
+            
+            # 가격 예측 데이터 로드
             df = pd.read_sql("SELECT * FROM predicted_stock_prices", self.engine)
+            
+            # 22개 종목만 필터링
+            if 'stock_name' in df.columns:
+                df = df[df['stock_name'].isin(available_stocks)]
+            elif 'stock_code' in df.columns:
+                # stock_code로 필터링하는 경우를 위한 매핑 (필요시 수정)
+                logger.info("stock_code 컬럼으로 필터링합니다. 필요시 stock_name 매핑을 추가하세요.")
+                df = df[df['stock_code'].isin(available_stocks)]
+            
+            logger.info(f"가격 예측 가능한 종목 {len(df)}개 로드 완료")
             return df
+            
         except Exception as e:
             logger.error(f"가격 예측 데이터 로드 실패: {e}")
+            raise
+
+    def get_available_stocks(self):
+        """가격 예측이 가능한 종목 리스트 반환"""
+        return [
+            'SK하이닉스', '한화', 'LG전자', '삼성전자', 'LG화학', 'NAVER', '기아', 
+            '삼성바이오로직스', '현대모비스', 'HD현대', '삼성생명', '삼성화재', 
+            '현대차', 'HD현대일렉트릭', '삼성중공업', 'SK이노베이션', '삼성SDI', 
+            'SK텔레콤', 'SK', '카카오', '현대로템', '카카오뱅크'
+        ]
+    
+    def get_available_stock_codes(self):
+        """가격 예측이 가능한 종목의 stock_code 리스트 반환 (A 접두사 포함)"""
+        return [
+            'A000270', 'A000660', 'A000810', 'A000880', 'A005930', 'A006400', 
+            'A010140', 'A032830', 'A207940', 'A017670', 'A034730', 'A096770', 
+            'A051910', 'A066570', 'A005380', 'A012330', 'A064350', 'A267250', 
+            'A267260', 'A035720', 'A323410', 'A035420'
+        ]
+    
+    def get_available_stock_codes_no_prefix(self):
+        """가격 예측이 가능한 종목의 stock_code 리스트 반환 (A 접두사 제거)"""
+        return [
+            '000270', '000660', '000810', '000880', '005930', '006400', 
+            '010140', '032830', '207940', '017670', '034730', '096770', 
+            '051910', '066570', '005380', '012330', '064350', '267250', 
+            '267260', '035720', '323410', '035420'
+        ]
+
+    def load_stock_meta_filtered(self):
+        """가격 예측 가능한 종목의 메타데이터만 로드"""
+        try:
+            available_stocks = self.get_available_stocks()
+            df = pd.read_sql("SELECT * FROM stock_items", self.engine)
+            
+            # 22개 종목만 필터링
+            df = df[df['stock_name'].isin(available_stocks)]
+            
+            logger.info(f"필터링된 종목 메타데이터 {len(df)}개 로드 완료")
+            return df
+            
+        except Exception as e:
+            logger.error(f"필터링된 종목 메타데이터 로드 실패: {e}")
+            raise
+
+    def load_stock_prices_filtered(self):
+        """가격 예측 가능한 종목의 가격 데이터만 로드"""
+        try:
+            available_stocks = self.get_available_stocks()
+            df = pd.read_sql("SELECT * FROM stock_prices", self.engine)
+            df['time'] = pd.to_datetime(df['time'])
+            
+            # 22개 종목만 필터링
+            df = df[df['stock_name'].isin(available_stocks)]
+            
+            logger.info(f"필터링된 종목 가격 데이터 {len(df)}개 로드 완료")
+            return df
+            
+        except Exception as e:
+            logger.error(f"필터링된 종목 가격 데이터 로드 실패: {e}")
+            raise
+
+    def load_news_sentiment_filtered(self):
+        """가격 예측 가능한 종목의 뉴스 감성분석 데이터만 로드"""
+        try:
+            stock_codes = self.get_available_stock_codes()
+            df = pd.read_sql("SELECT * FROM news_sentiment", self.engine)
+            
+            # 22개 종목만 필터링
+            df = df[df['stock_code'].isin(stock_codes)]
+            
+            logger.info(f"필터링된 뉴스 감성분석 데이터 {len(df)}개 로드 완료")
+            return df
+            
+        except Exception as e:
+            logger.error(f"필터링된 뉴스 감성분석 데이터 로드 실패: {e}")
+            raise
+
+    def load_financial_data_filtered(self):
+        """가격 예측 가능한 종목의 재무제표 데이터만 로드"""
+        try:
+            stock_codes = self.get_available_stock_codes_no_prefix()  # A 접두사 제거된 코드 사용
+            df = pd.read_sql("SELECT * FROM financial_statements", self.engine)
+            
+            # 22개 종목만 필터링
+            df = df[df['stock_code'].isin(stock_codes)]
+            
+            logger.info(f"필터링된 재무제표 데이터 {len(df)}개 로드 완료")
+            return df
+            
+        except Exception as e:
+            logger.error(f"필터링된 재무제표 데이터 로드 실패: {e}")
+            raise
+
+    def load_all_data_filtered(self, username = 'JunOh'):
+        """가격 예측 가능한 22개 종목의 데이터만 로드"""
+        try:
+            return {
+                'investment_type': self.get_user_investment_type(username),
+                'user_holdings': self.get_user_holdings(username),
+                'stock_meta': self.load_stock_meta_filtered(),
+                'stock_prices': self.load_stock_prices_filtered(),
+                'news_sentiment': self.load_news_sentiment_filtered(),
+                'price_predictions': self.load_price_predictions(),
+                'financial_data': self.load_financial_data_filtered()
+            }
+        except Exception as e:
+            logger.error(f"필터링된 데이터 로드 실패: {e}")
             raise
 
     def load_financial_data(self):

@@ -92,6 +92,64 @@ def load_financial_data():
         df = pd.read_sql("SELECT * FROM financial_data", conn)
     return df
 
+def get_available_stocks():
+    """가격 예측이 가능한 종목 리스트 반환"""
+    return [
+        'SK하이닉스', '한화', 'LG전자', '삼성전자', 'LG화학', 'NAVER', '기아', 
+        '삼성바이오로직스', '현대모비스', 'HD현대', '삼성생명', '삼성화재', 
+        '현대차', 'HD현대일렉트릭', '삼성중공업', 'SK이노베이션', '삼성SDI', 
+        'SK텔레콤', 'SK', '카카오', '현대로템', '카카오뱅크'
+    ]
+
+def load_stock_meta_filtered():
+    """가격 예측 가능한 종목의 메타데이터만 로드"""
+    with get_timescale_conn() as conn:
+        df = pd.read_sql("SELECT * FROM stock_items", conn)
+    
+    # 22개 종목만 필터링
+    available_stocks = get_available_stocks()
+    df = df[df['stock_name'].isin(available_stocks)]
+    
+    logger.info(f"필터링된 종목 메타데이터 {len(df)}개 로드 완료")
+    return df
+
+def load_stock_prices_filtered():
+    """가격 예측 가능한 종목의 가격 데이터만 로드"""
+    with get_timescale_conn() as conn:
+        df = pd.read_sql("SELECT * FROM stock_prices", conn)
+    df['time'] = pd.to_datetime(df['time'])
+    
+    # 22개 종목만 필터링
+    available_stocks = get_available_stocks()
+    df = df[df['stock_name'].isin(available_stocks)]
+    
+    logger.info(f"필터링된 종목 가격 데이터 {len(df)}개 로드 완료")
+    return df
+
+def load_news_sentiment_filtered():
+    """가격 예측 가능한 종목의 뉴스 감성분석 데이터만 로드"""
+    with get_timescale_conn() as conn:
+        df = pd.read_sql("SELECT * FROM news_sentiment", conn)
+    
+    # 22개 종목만 필터링
+    available_stocks = get_available_stocks()
+    df = df[df['stock_name'].isin(available_stocks)]
+    
+    logger.info(f"필터링된 뉴스 감성분석 데이터 {len(df)}개 로드 완료")
+    return df
+
+def load_financial_data_filtered():
+    """가격 예측 가능한 종목의 재무제표 데이터만 로드"""
+    with get_timescale_conn() as conn:
+        df = pd.read_sql("SELECT * FROM financial_data", conn)
+    
+    # 22개 종목만 필터링
+    available_stocks = get_available_stocks()
+    df = df[df['stock_name'].isin(available_stocks)]
+    
+    logger.info(f"필터링된 재무제표 데이터 {len(df)}개 로드 완료")
+    return df
+
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """주요 기술적 지표 추가"""
     try:
@@ -163,12 +221,12 @@ class StockRecommendationModelV3:
         self.investment_type = get_mongo_user_investment_type(username)
         logger.info(f"{username}의 투자성향: {self.investment_type}")
 
-        # 데이터 로드
-        self.stock_meta = load_stock_meta()
-        self.stock_prices = load_stock_prices()
-        self.news_sentiment = load_news_sentiment()
-        self.price_predictions = load_price_predictions()
-        self.financial_data = load_financial_data()
+        # 데이터 로드 (22개 종목만)
+        self.stock_meta = load_stock_meta_filtered()
+        self.stock_prices = load_stock_prices_filtered()
+        self.news_sentiment = load_news_sentiment_filtered()
+        self.price_predictions = load_price_predictions()  # 이미 22개 종목만 필터링됨
+        self.financial_data = load_financial_data_filtered()
         self.user_holdings = get_mongo_user_holdings(username)
         
         # MLP 모델 초기화
@@ -579,8 +637,8 @@ class StockRecommendationModelV3:
             logger.error(f"MLP 모델 평가 중 오류 발생: {e}")
             raise
 
-    def get_recommendations(self, top_n=7):
-        """종목 추천"""
+    def get_recommendations(self, top_n=3):
+        """종목 추천 (22개 종목 중 상위 3개)"""
         try:
             # MLP 예측 점수 계산
             if self.mlp_model is not None:
@@ -705,8 +763,8 @@ if __name__ == "__main__":
     for metric, value in evaluation_metrics.items():
         print(f"{metric}: {value:.4f}")
     
-    # 종목 추천
-    recommendations = model.get_recommendations(top_n=7)
+    # 종목 추천 (22개 종목 중 상위 3개)
+    recommendations = model.get_recommendations(top_n=3)
     print("\n추천 종목:")
     for rec in recommendations:
         print(rec)
