@@ -4,7 +4,7 @@ pandas==1.5.3
 scikit-learn==1.0.2
 tensorflow>=2.20.0
 keras==2.11.0
-protobuf==3.19.0
+protobuf
 torch==2.1.0  # PyTorch for deep learning
 transformers==4.36.0  # Hugging Face Transformers
 
