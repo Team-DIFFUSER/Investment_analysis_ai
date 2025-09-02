@@ -1,11 +1,10 @@
 # Core dependencies
-numpy==1.23.5
-pandas==1.5.3
-scikit-learn==1.0.2
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.2
 tensorflow>=2.20.0
-keras
 protobuf
-torch==2.1.0  # PyTorch for deep learning
+torch==2.3.1  # PyTorch for deep learning (Python 3.12 compatible)
 transformers==4.36.0  # Hugging Face Transformers
 
 # Data processing and analysis
@@ -22,8 +21,8 @@ sqlalchemy==1.4.41  # SQL toolkit and ORM
 pymongo==4.6.1  # MongoDB driver
 
 # Visualization
-matplotlib==3.7.1
-seaborn==0.12.2
+matplotlib==3.8.4
+seaborn==0.13.2
 
 # Utilities
 python-dotenv==1.0.0
@@ -31,8 +30,8 @@ tqdm==4.66.1
 joblib==1.3.2
 
 # Performance and analysis
-numba==0.58.1  # For performance optimization
-scipy==1.10.1
+numba==0.60.0  # For performance optimization (Python 3.12 compatible)
+scipy==1.13.1
 networkx==3.1  # For graph analysis
 
 # Additional dependencies
