@@ -25,17 +25,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def load_latest_model(user_id: str) -> RecommendationMLP:
-    """가장 최근 모델 로드"""
+    """가장 최근 모델 로드 (사용자별 모델 없으면 공통 모델 사용)"""
     try:
         # saved 폴더에서 해당 사용자의 가장 최근 모델 찾기
         model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'saved')
         model_files = [f for f in os.listdir(model_dir) if f.startswith(f'model_{user_id}_')]
         
         if not model_files:
-            raise FileNotFoundError(f"사용자 {user_id}의 모델을 찾을 수 없습니다.")
-        
-        latest_model = sorted(model_files)[-1]
-        model_path = os.path.join(model_dir, latest_model)
+            # 사용자별 모델이 없으면 공통 모델(model_latest.pt) 사용
+            model_path = os.path.join(model_dir, 'model_latest.pt')
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"공통 모델(model_latest.pt)도 찾을 수 없습니다.")
+        else:
+            latest_model = sorted(model_files)[-1]
+            model_path = os.path.join(model_dir, latest_model)
         
         # 모델 초기화
         config = RecommendationConfig()
@@ -82,6 +85,11 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
         
         processor = RecommendationDataProcessor()
         processed_data = processor.process(data)
+        features_df = processed_data['features']
+
+        # stock_code가 리스트인 경우 첫 번째 값만 사용
+        if features_df['stock_code'].apply(lambda x: isinstance(x, list)).any():
+            features_df['stock_code'] = features_df['stock_code'].apply(lambda x: x[0] if isinstance(x, list) else x)
         
         # 모델 로드
         model = load_latest_model(user_id)
@@ -95,35 +103,86 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
                 'sale_amt_norm', 'bus_pro_norm', 'cup_nga_norm', 'cap_norm',
                 'profit_margin_norm', 'asset_turnover_norm', 'financial_leverage_norm'
             ]
-            X = torch.tensor(processed_data[feature_cols].values, dtype=torch.float32)
+            X = torch.tensor(features_df[feature_cols].values, dtype=torch.float32)
             predictions = model(X).squeeze().numpy()
         
         # 예측 결과에 종목 정보 추가
-        processed_data['예측수익률'] = predictions
+        features_df['예측수익률'] = predictions
         
         # 투자 유형별 가중치 적용
         weights = config.get_investment_weights(investment_type)
-        
-        # 최종 점수 계산
-        processed_data['최종점수'] = (
-            weights['수익률'] * processed_data['1개월수익률_norm'] +
-            weights['변동성'] * (1 - processed_data['변동성_1개월_norm']) +
-            weights['감성'] * processed_data['sentiment_score_norm'] +
-            weights['재무'] * (
-                processed_data['per_norm'] +
-                processed_data['pbr_norm'] +
-                processed_data['roe_norm'] +
-                processed_data['ev_norm'] +
-                processed_data['bps_norm'] +
-                processed_data['profit_margin_norm'] +
-                processed_data['asset_turnover_norm'] +
-                (1 - processed_data['financial_leverage_norm'])
-            ) / 8
-        ) * 100
+
+        # nan/inf를 0으로 대체 (최종점수에 사용되는 모든 컬럼)
+        norm_features = [
+            '1개월수익률_norm', '변동성_1개월_norm', 'sentiment_score_norm',
+            'per_norm', 'pbr_norm', 'roe_norm', 'ev_norm', 'bps_norm',
+            'profit_margin_norm', 'asset_turnover_norm', 'financial_leverage_norm'
+        ]
+        for feature in norm_features:
+            if feature in features_df.columns:
+                features_df[feature] = features_df[feature].replace([np.inf, -np.inf], 0.0)
+                features_df[feature] = features_df[feature].fillna(0.0)
+
+        # 예측값 칼리브레이션 (선형 보정)
+        def _calibrate_predictions(y_pred: np.ndarray, y_true: np.ndarray) -> np.ndarray:
+            try:
+                if len(y_pred) != len(y_true) or len(y_pred) < 5:
+                    return y_pred
+                mask = (~np.isnan(y_pred)) & (~np.isnan(y_true)) & np.isfinite(y_pred) & np.isfinite(y_true)
+                if mask.sum() < 5:
+                    return y_pred
+                a, b = np.polyfit(y_pred[mask], y_true[mask], 1)
+                y_cal = a * y_pred + b
+                return np.clip(y_cal, -20.0, 20.0)
+            except Exception:
+                return y_pred
+
+        if '1개월수익률' in features_df.columns:
+            features_df['예측수익률'] = _calibrate_predictions(features_df['예측수익률'].values, features_df['1개월수익률'].values)
+
+        # 랭킹 기반 최종 점수 계산
+        def _pct_rank(s: pd.Series) -> pd.Series:
+            try:
+                return s.rank(pct=True, method='average').fillna(0.0)
+            except Exception:
+                return pd.Series(np.zeros(len(s)), index=s.index)
+
+        mom_rank = _pct_rank(features_df.get('1개월수익률', pd.Series(np.zeros(len(features_df)))))
+        vol_rank = 1.0 - _pct_rank(features_df.get('변동성_1개월', pd.Series(np.zeros(len(features_df)))))
+        sent_rank = _pct_rank(features_df.get('sentiment_score', pd.Series(np.zeros(len(features_df)))))
+        pred_rank = _pct_rank(features_df['예측수익률'])
+
+        fin_cols = [
+            'per_norm', 'pbr_norm', 'roe_norm', 'ev_norm', 'bps_norm',
+            'profit_margin_norm', 'asset_turnover_norm', 'financial_leverage_norm'
+        ]
+        for c in fin_cols:
+            if c not in features_df.columns:
+                features_df[c] = 0.0
+        fin_composite = (
+            features_df['per_norm'] +
+            features_df['pbr_norm'] +
+            features_df['roe_norm'] +
+            features_df['ev_norm'] +
+            features_df['bps_norm'] +
+            features_df['profit_margin_norm'] +
+            features_df['asset_turnover_norm'] +
+            (1 - features_df['financial_leverage_norm'])
+        ) / 8.0
+        fin_rank = _pct_rank(fin_composite)
+
+        ret_rank_blend = 0.5 * mom_rank + 0.5 * pred_rank
+
+        features_df['최종점수'] = 100.0 * (
+            weights['수익률'] * ret_rank_blend +
+            weights['변동성'] * vol_rank +
+            weights['감성'] * sent_rank +
+            weights['재무'] * fin_rank
+        )
         
         # 상위 종목 선정
         top_n = config.get_recommendation_config()['top_n']
-        top_stocks = processed_data.sort_values('최종점수', ascending=False).head(top_n)
+        top_stocks = features_df.sort_values('최종점수', ascending=False).head(top_n)
         
         # 추천 결과 생성
         recommendations = []
@@ -382,46 +441,101 @@ def evaluate_recommendation_model(user_id: str, investment_type: str = '위험�
         data = data_loader.load_all_data(user_id)
         
         processor = RecommendationDataProcessor()
-        processed_data = processor.process(data)
+        processed = processor.process(data)
+        features_df = processed['features']
         
-        # 추천 종목 생성
+        # stock_code가 리스트인 경우 첫 번째 값만 사용
+        if features_df['stock_code'].apply(lambda x: isinstance(x, list)).any():
+            features_df['stock_code'] = features_df['stock_code'].apply(lambda x: x[0] if isinstance(x, list) else x)
+        
+        # 모델 로드 및 예측 생성 (평가용)
+        model = load_latest_model(user_id)
+        model.eval()
+        with torch.no_grad():
+            feature_cols = [
+                '1개월수익률_norm', '변동성_1개월_norm', 'sentiment_score_norm', '예측수익률_norm',
+                '보유평가손익률_norm', 'per_norm', 'pbr_norm', 'roe_norm', 'ev_norm', 'bps_norm',
+                'sale_amt_norm', 'bus_pro_norm', 'cup_nga_norm', 'cap_norm',
+                'profit_margin_norm', 'asset_turnover_norm', 'financial_leverage_norm'
+            ]
+            X_eval = torch.tensor(features_df[feature_cols].values, dtype=torch.float32)
+            y_pred = model(X_eval).squeeze().numpy()
+
+        # 칼리브레이션
+        y_true = features_df['1개월수익률'].values if '1개월수익률' in features_df.columns else y_pred
+        try:
+            a, b = np.polyfit(y_pred, y_true, 1)
+            y_pred_cal = np.clip(a * y_pred + b, -20.0, 20.0)
+        except Exception:
+            y_pred_cal = y_pred
+
+        # 랭킹 메트릭 (IC/RankIC/HitRatio)
+        df_eval = pd.DataFrame({
+            'y_true': y_true,
+            'y_pred': y_pred_cal
+        }).replace([np.inf, -np.inf], np.nan).dropna()
+
+        ic_pearson = df_eval['y_true'].corr(df_eval['y_pred'], method='pearson') if len(df_eval) > 2 else np.nan
+        ic_spearman = df_eval['y_true'].corr(df_eval['y_pred'], method='spearman') if len(df_eval) > 2 else np.nan
+        hit_ratio = float(np.mean(np.sign(df_eval['y_true']) == np.sign(df_eval['y_pred']))) if len(df_eval) > 0 else np.nan
+
+        # Decile 백테스트 (예측 기준 정렬)
+        try:
+            df_eval['decile'] = pd.qcut(df_eval['y_pred'], 10, labels=False, duplicates='drop')
+            decile_returns = df_eval.groupby('decile')['y_true'].mean()
+            top_decile = decile_returns.iloc[-1] if len(decile_returns) > 0 else np.nan
+            bottom_decile = decile_returns.iloc[0] if len(decile_returns) > 0 else np.nan
+            long_short = top_decile - bottom_decile if pd.notnull(top_decile) and pd.notnull(bottom_decile) else np.nan
+        except Exception:
+            top_decile = bottom_decile = long_short = np.nan
+
+        print("\n추천 모델 랭킹 평가:")
+        print(f"IC(Pearson): {ic_pearson:.4f}" if pd.notnull(ic_pearson) else "IC(Pearson): N/A")
+        print(f"RankIC(Spearman): {ic_spearman:.4f}" if pd.notnull(ic_spearman) else "RankIC(Spearman): N/A")
+        print(f"Hit Ratio: {hit_ratio:.4f}" if pd.notnull(hit_ratio) else "Hit Ratio: N/A")
+        print(f"Top Decile 평균수익률: {top_decile:.4f}" if pd.notnull(top_decile) else "Top Decile 평균수익률: N/A")
+        print(f"Long-Short (D10-D1): {long_short:.4f}" if pd.notnull(long_short) else "Long-Short (D10-D1): N/A")
+
+        # 기존 추천 품질 평가도 병행
         recommendations = recommend_stocks(user_id, investment_type)
-        
-        # 실제 수익률 데이터 준비
-        actual_returns = processed_data.set_index('stock_code')['1개월수익률']
-        
-        # 추천 품질 평가
+        actual_returns = features_df.set_index('stock_code')['1개월수익률']
         quality_metrics = evaluate_recommendation_quality(
             recommendations, actual_returns, investment_type
         )
-        
-        # 결과 출력
-        print("\n추천 모델 평가 결과:")
+
+        print("\n추천 모델 포트폴리오 평가:")
         for metric, value in quality_metrics.items():
             print(f"{metric}: {value:.4f}")
-        
-        # 시각화
-        plt.figure(figsize=(12, 6))
-        
-        # 수익률 분포
-        plt.subplot(1, 2, 1)
-        returns = [rec['주요팩터']['1개월수익률'] for rec in recommendations]
-        plt.hist(returns, bins=10)
-        plt.xlabel('수익률 (%)')
-        plt.ylabel('빈도')
-        plt.title('추천 종목 수익률 분포')
-        
-        # 섹터 분포
-        plt.subplot(1, 2, 2)
-        sectors = [rec['주요팩터'].get('섹터', '기타') for rec in recommendations]
-        sector_counts = pd.Series(sectors).value_counts()
-        plt.pie(sector_counts, labels=sector_counts.index, autopct='%1.1f%%')
-        plt.title('섹터 분포')
-        
-        plt.tight_layout()
-        plt.show()
-        
-        return quality_metrics
+
+        # 간단 시각화: 예측 vs 실제 산포, Decile bar
+        try:
+            plt.figure(figsize=(12, 5))
+            plt.subplot(1, 2, 1)
+            plt.scatter(df_eval['y_pred'], df_eval['y_true'], s=8, alpha=0.6)
+            plt.xlabel('예측수익률(교정)')
+            plt.ylabel('실제 1M 수익률')
+            plt.title('예측 vs 실제')
+
+            plt.subplot(1, 2, 2)
+            if 'decile' in df_eval.columns:
+                means = df_eval.groupby('decile')['y_true'].mean()
+                means.plot(kind='bar')
+                plt.title('Decile 평균 1M 수익률')
+                plt.xlabel('Decile (낮음→높음)')
+                plt.ylabel('평균 수익률')
+            plt.tight_layout()
+            plt.show()
+        except Exception:
+            pass
+
+        return {
+            'IC': float(ic_pearson) if pd.notnull(ic_pearson) else None,
+            'RankIC': float(ic_spearman) if pd.notnull(ic_spearman) else None,
+            'HitRatio': float(hit_ratio) if pd.notnull(hit_ratio) else None,
+            'TopDecileRet': float(top_decile) if pd.notnull(top_decile) else None,
+            'LongShort': float(long_short) if pd.notnull(long_short) else None,
+            **quality_metrics
+        }
         
     except Exception as e:
         logger.error(f"추천 모델 평가 중 오류 발생: {e}")

@@ -212,9 +212,9 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
         # 설정 로드
         config = RecommendationConfig()
         
-        # 데이터 로드 및 전처리
+        # 데이터 로드 및 전처리 (22개 종목만)
         data_loader = RecommendationDataLoader()
-        data = data_loader.load_all_data(user_id)
+        data = data_loader.load_all_data_filtered(user_id)
         
         processor = RecommendationDataProcessor()
         processed_data = processor.process(data)
@@ -246,12 +246,26 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
             X = torch.tensor(X, dtype=torch.float32)
             pred_array = model(X).squeeze().numpy()
 
-        # 예측 결과를 딕셔너리로 변환
-        predictions = {}
-        for i, code in enumerate(features_df['stock_code']):
-            predictions[code] = float(pred_array[i])
+        # 예측값 칼리브레이션 (선형 보정)
+        def _calibrate_predictions(y_pred: np.ndarray, y_true: np.ndarray) -> np.ndarray:
+            try:
+                if len(y_pred) != len(y_true) or len(y_pred) < 5:
+                    return y_pred
+                mask = (~np.isnan(y_pred)) & (~np.isnan(y_true)) & np.isfinite(y_pred) & np.isfinite(y_true)
+                if mask.sum() < 5:
+                    return y_pred
+                a, b = np.polyfit(y_pred[mask], y_true[mask], 1)
+                y_cal = a * y_pred + b
+                return np.clip(y_cal, -20.0, 20.0)
+            except Exception:
+                return y_pred
 
-        # 예측 결과에 종목 정보 추가
+        pred_array_cal = pred_array
+        if '1개월수익률' in features_df.columns:
+            pred_array_cal = _calibrate_predictions(pred_array, features_df['1개월수익률'].values)
+
+        # 예측 결과에 종목 정보 추가 (교정 반영)
+        predictions = {code: float(pred_array_cal[i]) for i, code in enumerate(features_df['stock_code'])}
         features_df['예측수익률'] = features_df['stock_code'].map(predictions)
         
         # 투자 유형별 가중치 적용
@@ -269,22 +283,45 @@ def recommend_stocks(user_id: str, investment_type: str = '위험중립형') -> 
                 features_df[feature] = features_df[feature].fillna(0.0)
                 features_df[feature] = features_df[feature].replace([np.inf, -np.inf], 0.0)
         
-        # 최종 점수 계산
-        features_df['최종점수'] = (
-            weights['수익률'] * features_df['1개월수익률_norm'] +
-            weights['변동성'] * (1 - features_df['변동성_1개월_norm']) +
-            weights['감성'] * features_df['sentiment_score_norm'] +
-            weights['재무'] * (
-                features_df['per_norm'] +
-                features_df['pbr_norm'] +
-                features_df['roe_norm'] +
-                features_df['ev_norm'] +
-                features_df['bps_norm'] +
-                features_df['profit_margin_norm'] +
-                features_df['asset_turnover_norm'] +
-                (1 - features_df['financial_leverage_norm'])
-            ) / 8
-        ) * 100
+        # 랭킹 기반 최종 점수 계산
+        def _pct_rank(s: pd.Series) -> pd.Series:
+            try:
+                return s.rank(pct=True, method='average').fillna(0.0)
+            except Exception:
+                return pd.Series(np.zeros(len(s)), index=s.index)
+
+        mom_rank = _pct_rank(features_df.get('1개월수익률', pd.Series(np.zeros(len(features_df)))))
+        vol_rank = 1.0 - _pct_rank(features_df.get('변동성_1개월', pd.Series(np.zeros(len(features_df)))))
+        sent_rank = _pct_rank(features_df.get('sentiment_score', pd.Series(np.zeros(len(features_df)))))
+        pred_rank = _pct_rank(features_df['예측수익률'])
+
+        fin_cols = [
+            'per_norm', 'pbr_norm', 'roe_norm', 'ev_norm', 'bps_norm',
+            'profit_margin_norm', 'asset_turnover_norm', 'financial_leverage_norm'
+        ]
+        for c in fin_cols:
+            if c not in features_df.columns:
+                features_df[c] = 0.0
+        fin_composite = (
+            features_df['per_norm'] +
+            features_df['pbr_norm'] +
+            features_df['roe_norm'] +
+            features_df['ev_norm'] +
+            features_df['bps_norm'] +
+            features_df['profit_margin_norm'] +
+            features_df['asset_turnover_norm'] +
+            (1 - features_df['financial_leverage_norm'])
+        ) / 8.0
+        fin_rank = _pct_rank(fin_composite)
+
+        ret_rank_blend = 0.5 * mom_rank + 0.5 * pred_rank
+
+        features_df['최종점수'] = 100.0 * (
+            weights['수익률'] * ret_rank_blend +
+            weights['변동성'] * vol_rank +
+            weights['감성'] * sent_rank +
+            weights['재무'] * fin_rank
+        )
         
         # 최종점수에도 nan/inf 처리
         features_df['최종점수'] = features_df['최종점수'].fillna(0.0)
