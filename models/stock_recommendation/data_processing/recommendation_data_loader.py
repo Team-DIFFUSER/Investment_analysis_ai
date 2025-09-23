@@ -77,7 +77,8 @@ class RecommendationDataLoader:
     def load_stock_meta(self):
         """종목 메타데이터 로드"""
         try:
-            df = pd.read_sql("SELECT * FROM stock_items", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM stock_items", connection)
             return df
         except Exception as e:
             logger.error(f"종목 메타데이터 로드 실패: {e}")
@@ -86,7 +87,8 @@ class RecommendationDataLoader:
     def load_stock_prices(self):
         """종목 가격 데이터 로드"""
         try:
-            df = pd.read_sql("SELECT * FROM stock_prices", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM stock_prices", connection)
             df['time'] = pd.to_datetime(df['time'])
             return df
         except Exception as e:
@@ -96,7 +98,8 @@ class RecommendationDataLoader:
     def load_news_sentiment(self):
         """뉴스 감성분석 데이터 로드"""
         try:
-            df = pd.read_sql("SELECT * FROM news_sentiment", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM news_sentiment", connection)
             return df
         except Exception as e:
             logger.error(f"뉴스 감성분석 데이터 로드 실패: {e}")
@@ -114,7 +117,8 @@ class RecommendationDataLoader:
             ]
             
             # 가격 예측 데이터 로드
-            df = pd.read_sql("SELECT * FROM predicted_stock_prices", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM predicted_stock_prices", connection)
             
             # 22개 종목만 필터링
             if 'stock_name' in df.columns:
@@ -162,7 +166,8 @@ class RecommendationDataLoader:
         """가격 예측 가능한 종목의 메타데이터만 로드"""
         try:
             available_stocks = self.get_available_stocks()
-            df = pd.read_sql("SELECT * FROM stock_items", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM stock_items", connection)
             
             # 22개 종목만 필터링
             df = df[df['stock_name'].isin(available_stocks)]
@@ -178,7 +183,8 @@ class RecommendationDataLoader:
         """가격 예측 가능한 종목의 가격 데이터만 로드"""
         try:
             available_stocks = self.get_available_stocks()
-            df = pd.read_sql("SELECT * FROM stock_prices", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM stock_prices", connection)
             df['time'] = pd.to_datetime(df['time'])
             
             # 22개 종목만 필터링
@@ -195,7 +201,8 @@ class RecommendationDataLoader:
         """가격 예측 가능한 종목의 뉴스 감성분석 데이터만 로드"""
         try:
             stock_codes = self.get_available_stock_codes()
-            df = pd.read_sql("SELECT * FROM news_sentiment", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM news_sentiment", connection)
             
             # 22개 종목만 필터링
             df = df[df['stock_code'].isin(stock_codes)]
@@ -211,7 +218,8 @@ class RecommendationDataLoader:
         """가격 예측 가능한 종목의 재무제표 데이터만 로드"""
         try:
             stock_codes = self.get_available_stock_codes_no_prefix()  # A 접두사 제거된 코드 사용
-            df = pd.read_sql("SELECT * FROM financial_statements", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM financial_statements", connection)
             
             # 22개 종목만 필터링
             df = df[df['stock_code'].isin(stock_codes)]
@@ -242,7 +250,8 @@ class RecommendationDataLoader:
     def load_financial_data(self):
         """재무제표 데이터 로드"""
         try:
-            df = pd.read_sql("SELECT * FROM financial_statements", self.engine)
+            with self.engine.connect() as connection:
+                df = pd.read_sql("SELECT * FROM financial_statements", connection)
             return df
         except Exception as e:
             logger.error(f"재무제표 데이터 로드 실패: {e}")
