@@ -1,0 +1,34 @@
+
+            학습 결과 리포트 (최적화된 버전)
+            ==============================
+            총 종목 수: 22
+            성공: 0
+            실패: 22
+            
+            실패한 종목:
+            - LG화학: tuple index out of range
+- SK하이닉스: tuple index out of range
+- 삼성바이오로직스: tuple index out of range
+- 한화: tuple index out of range
+- LG전자: tuple index out of range
+- 삼성전자: tuple index out of range
+- 현대차: tuple index out of range
+- 기아: tuple index out of range
+- 삼성생명: tuple index out of range
+- NAVER: tuple index out of range
+- HD현대: tuple index out of range
+- 현대모비스: tuple index out of range
+- 현대로템: tuple index out of range
+- 삼성화재: tuple index out of range
+- HD현대일렉트릭: tuple index out of range
+- SK이노베이션: tuple index out of range
+- 삼성중공업: tuple index out of range
+- 삼성SDI: tuple index out of range
+- SK텔레콤: tuple index out of range
+- 카카오뱅크: tuple index out of range
+- SK: tuple index out of range
+- 카카오: tuple index out of range
+            
+            성공한 종목의 학습 결과:
+            없음
+            
