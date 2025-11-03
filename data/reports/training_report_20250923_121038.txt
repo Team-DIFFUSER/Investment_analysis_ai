@@ -1,0 +1,33 @@
+
+            학습 결과 리포트 (최적화된 버전)
+            ==============================
+            총 종목 수: 22
+            성공: 15
+            실패: 7
+            
+            실패한 종목:
+            - 한화: tuple index out of range
+- 현대모비스: tuple index out of range
+- 삼성생명: tuple index out of range
+- HD현대일렉트릭: tuple index out of range
+- 삼성중공업: tuple index out of range
+- SK: tuple index out of range
+- 카카오뱅크: tuple index out of range
+            
+            성공한 종목의 학습 결과:
+            - 현대차: loss=4.5910, val_loss=4.2108
+- LG화학: loss=4.4319, val_loss=3.8370
+- LG전자: loss=4.2327, val_loss=3.6928
+- 삼성바이오로직스: loss=4.1012, val_loss=3.6152
+- HD현대: loss=4.1676, val_loss=3.8735
+- 삼성전자: loss=4.0461, val_loss=3.5515
+- SK하이닉스: loss=3.7393, val_loss=3.3253
+- NAVER: loss=3.4348, val_loss=3.0016
+- 삼성화재: loss=4.4409, val_loss=4.1167
+- SK텔레콤: loss=4.7362, val_loss=4.0966
+- 기아: loss=3.3593, val_loss=3.0480
+- 현대로템: loss=3.6834, val_loss=3.3637
+- SK이노베이션: loss=3.6628, val_loss=3.2085
+- 삼성SDI: loss=3.3297, val_loss=2.9626
+- 카카오: loss=3.5014, val_loss=3.1173
+            
