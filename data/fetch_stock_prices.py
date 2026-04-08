@@ -12,12 +12,25 @@ import FinanceDataReader as fdr
 import numpy as np
 import pytz
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 
 
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
+# logs 디렉토리 생성
+logs_dir = Path(__file__).parent.parent / 'logs'
+logs_dir.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # 콘솔 출력
+        logging.FileHandler(logs_dir / 'stock_prices.log', encoding='utf-8')  # 파일 출력
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # 현재 파일의 절대 경로
@@ -51,7 +64,7 @@ def create_stock_prices_table():
     );
     """
     execute_query(query)
-    print("Stock prices table created successfully!")
+    logger.info("Stock prices table created successfully!")
 
 def get_date_range():
     """한국 시간 기준으로 오늘 날짜만 가져오기 위한 날짜 범위 계산"""
@@ -61,30 +74,30 @@ def get_date_range():
     
     # 주말인지 확인
     if today_korea.weekday() >= 5:  # 5=토요일, 6=일요일
-        print(f"⚠️ 오늘은 주말입니다 ({today_korea.strftime('%Y-%m-%d %A')})")
-        print("📅 가장 최근 거래일을 확인합니다...")
+        logger.warning(f"⚠️ 오늘은 주말입니다 ({today_korea.strftime('%Y-%m-%d %A')})")
+        logger.info("📅 가장 최근 거래일을 확인합니다...")
         
         # 가장 최근 거래일 찾기 (최대 7일 전까지)
         for i in range(1, 8):
             check_date = today_korea - timedelta(days=i)
             if check_date.weekday() < 5:  # 평일인 경우
-                print(f"📅 최근 거래일: {check_date.strftime('%Y-%m-%d %A')}")
+                logger.info(f"📅 최근 거래일: {check_date.strftime('%Y-%m-%d %A')}")
                 return check_date.strftime('%Y%m%d'), check_date.strftime('%Y%m%d')
     
-    print(f"📅 오늘 날짜 (한국 시간): {today_korea.strftime('%Y-%m-%d %A')}")
+    logger.info(f"📅 오늘 날짜 (한국 시간): {today_korea.strftime('%Y-%m-%d %A')}")
     return today_korea.strftime('%Y%m%d'), today_korea.strftime('%Y%m%d')
 
 def clean_stock_code(stock_code):
     """종목코드에서 'A' 접두사 제거"""
     return stock_code.replace('A', '')
 
-def fetch_stock_data_with_retry(stock_code, start_date, end_date, max_retries=3, delay=2):
-    """재시도 로직이 포함된 주가 데이터 수집"""
+def fetch_stock_data_with_retry(stock_code, start_date, end_date, max_retries=2, delay=0.1):
+    """재시도 로직이 포함된 주가 데이터 수집 (속도 최적화)"""
     for attempt in range(max_retries):
         try:
-            # API 호출 간격 조절 (rate limiting 방지)
+            # API 호출 간격 조절 (rate limiting 방지) - 간격 단축
             if attempt > 0:
-                sleep_time = delay + random.uniform(0.5, 2.0)
+                sleep_time = delay + random.uniform(0.05, 0.2)
                 time.sleep(sleep_time)
             
             return fetch_stock_data(stock_code, start_date, end_date)
@@ -108,23 +121,23 @@ def fetch_stock_data(stock_code, start_date, end_date):
         # 종목코드 정리 (A 제거)
         clean_code = stock_code.replace('A', '')
         
-        print(f"  - 주가 데이터 가져오기 시도 중...")
-        print(f"  - 조회일: {start_date}")
+        logger.info(f"  - 주가 데이터 가져오기 시도 중...")
+        logger.info(f"  - 조회일: {start_date}")
         
         try:
             # 종목명 먼저 확인
             stock_name = stock.get_market_ticker_name(clean_code)
             if not stock_name:
-                print(f"  - 유효하지 않은 종목코드")
+                logger.warning(f"  - 유효하지 않은 종목코드")
                 return None, 0
-            print(f"  - 종목명: {stock_name}")
+            logger.info(f"  - 종목명: {stock_name}")
             
             # 주가 데이터 가져오기 (오늘 날짜만)
             df = stock.get_market_ohlcv_by_date(start_date, end_date, clean_code)
             
             # 데이터가 없는 경우
             if df.empty:
-                print(f"  - {start_date} 데이터가 없음 (거래일이 아님)")
+                logger.warning(f"  - {start_date} 데이터가 없음 (거래일이 아님)")
                 return None, 0
                 
             # 컬럼명 변경
@@ -146,52 +159,32 @@ def fetch_stock_data(stock_code, start_date, end_date):
             df = df.reset_index()
             df = df.rename(columns={'날짜': 'time'})
             
-            # 시가총액 데이터 가져오기 (오늘 날짜만) - 에러 처리 강화
-            try:
-                market_cap = stock.get_market_cap_by_date(start_date, end_date, clean_code)
-                if not market_cap.empty and '시가총액' in market_cap.columns:
-                    df['market_cap'] = market_cap['시가총액']
-                else:
-                    df['market_cap'] = None
-            except Exception as e:
-                print(f"  - 시가총액 데이터 가져오기 실패: {str(e)}")
-                df['market_cap'] = None
+            # 시가총액과 외국인 보유량은 속도 향상을 위해 제외
+            df['market_cap'] = None
+            df['foreign_holding'] = None
+            df['foreign_holding_ratio'] = None
             
-            # 외국인/기관 보유량 데이터 가져오기 (오늘 날짜만) - 에러 처리 강화
-            try:
-                foreign_holding = stock.get_exhaustion_rates_of_foreign_investment_by_ticker(clean_code, start_date, end_date)
-                if not foreign_holding.empty and '외국인보유량' in foreign_holding.columns:
-                    df['foreign_holding'] = foreign_holding['외국인보유량']
-                    df['foreign_holding_ratio'] = foreign_holding['외국인보유비율']
-                else:
-                    df['foreign_holding'] = None
-                    df['foreign_holding_ratio'] = None
-            except Exception as e:
-                print(f"  - 외국인 보유량 데이터 가져오기 실패: {str(e)}")
-                df['foreign_holding'] = None
-                df['foreign_holding_ratio'] = None
-            
-            print(f"  - {start_date} 주가 데이터 가져오기 성공!")
-            print(f"  - 데이터 샘플:\n{df.head()}")
+            logger.info(f"  - {start_date} 주가 데이터 가져오기 성공!")
+            logger.debug(f"  - 데이터 샘플:\n{df.head()}")
             return df, len(df)
             
         except json.JSONDecodeError as e:
-            print(f"  - API 응답 파싱 실패: {str(e)}")
-            print(f"  - API 응답이 유효한 JSON 형식이 아닙니다.")
+            logger.error(f"  - API 응답 파싱 실패: {str(e)}")
+            logger.error(f"  - API 응답이 유효한 JSON 형식이 아닙니다.")
             # JSON 파싱 실패 시 재시도 필요
             raise
         except requests.exceptions.RequestException as e:
-            print(f"  - API 요청 실패: {str(e)}")
-            print(f"  - 네트워크 오류 또는 API 서버 문제")
+            logger.error(f"  - API 요청 실패: {str(e)}")
+            logger.error(f"  - 네트워크 오류 또는 API 서버 문제")
             raise
         except Exception as e:
-            print(f"  - 데이터 가져오기 실패: {str(e)}")
-            print(f"  - 상세 정보: {type(e).__name__}")
+            logger.error(f"  - 데이터 가져오기 실패: {str(e)}")
+            logger.error(f"  - 상세 정보: {type(e).__name__}")
             return None, 0
         
     except Exception as e:
-        print(f"데이터 수집 중 오류 발생: {e}")
-        print(f"상세 정보: {type(e).__name__}")
+        logger.error(f"데이터 수집 중 오류 발생: {e}")
+        logger.error(f"상세 정보: {type(e).__name__}")
         return None, 0
 
 def delete_today_data():
@@ -203,15 +196,15 @@ def delete_today_data():
     
     query = "DELETE FROM stock_prices WHERE time = %s;"
     execute_query(query, (today_str,))
-    print(f"🗑️ {today_str} 기존 데이터 삭제 완료")
+    logger.info(f"🗑️ {today_str} 기존 데이터 삭제 완료")
 
 def fetch_stock_prices():
     """오늘 주가 데이터를 가져와 데이터베이스에 저장"""
-    print("📢 KOSPI200 오늘 주가 데이터를 가져오는 중...")
+    logger.info("📢 KOSPI200 오늘 주가 데이터를 가져오는 중...")
     
     # 시작일과 종료일 설정 (한국 시간 기준)
     start_date, end_date = get_date_range()
-    print(f"📆 조회일: {start_date}")
+    logger.info(f"📆 조회일: {start_date}")
     
     # 오늘 기존 데이터 삭제
     delete_today_data()
@@ -222,33 +215,50 @@ def fetch_stock_prices():
         results = execute_query(query)
         stock_list = pd.DataFrame(results, columns=['stock_code', 'stock_name'])
     except Exception as e:
-        print(f"종목 리스트를 가져올 수 없습니다: {e}")
+        logger.error(f"종목 리스트를 가져올 수 없습니다: {e}")
         return None
     
-    # 종목별 데이터를 담을 리스트
-    all_stock_data = []
-    success_count = 0
-    fail_count = 0
-    
-    for idx, row in stock_list.iterrows():
+    # 병렬 처리를 위한 함수
+    def fetch_single_stock(stock_info):
+        idx, row = stock_info
         stock_code = row['stock_code']
         stock_name = row['stock_name']
         
-        print(f"🔄 ({idx+1}/{len(stock_list)}) {stock_name}({stock_code}) {start_date} 데이터 수집 중...")
-        
-        # API 호출 간격 조절 (rate limiting 방지)
-        if idx > 0:
-            time.sleep(random.uniform(0.5, 1.5))
+        logger.info(f"🔄 ({idx+1}/{len(stock_list)}) {stock_name}({stock_code}) {start_date} 데이터 수집 중...")
         
         df, count = fetch_stock_data_with_retry(stock_code, start_date, end_date)
         
         if df is not None and not df.empty:
-            all_stock_data.append(df)
-            success_count += 1
-            print(f"✅ {stock_name}({stock_code}) - {start_date} 데이터 {count}개 수집 완료")
+            logger.info(f"✅ {stock_name}({stock_code}) - {start_date} 데이터 {count}개 수집 완료")
+            return df, True
         else:
-            fail_count += 1
-            print(f"❌ {stock_name}({stock_code}) - {start_date} 데이터 없음")
+            logger.warning(f"❌ {stock_name}({stock_code}) - {start_date} 데이터 없음")
+            return None, False
+    
+    # 병렬 처리로 데이터 수집 (최대 10개 스레드)
+    all_stock_data = []
+    success_count = 0
+    fail_count = 0
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # 모든 종목을 병렬로 처리
+        future_to_stock = {
+            executor.submit(fetch_single_stock, (idx, row)): (idx, row) 
+            for idx, row in stock_list.iterrows()
+        }
+        
+        # 결과 수집
+        for future in as_completed(future_to_stock):
+            try:
+                df, success = future.result()
+                if success and df is not None:
+                    all_stock_data.append(df)
+                    success_count += 1
+                else:
+                    fail_count += 1
+            except Exception as e:
+                fail_count += 1
+                logger.error(f"종목 처리 중 오류 발생: {e}")
     
     if all_stock_data:
         # 모든 주가 데이터 합치기
@@ -285,22 +295,22 @@ def fetch_stock_prices():
         
         execute_values_query(query, data)
         
-        print(f"\n💾 {start_date} 데이터가 데이터베이스에 저장되었습니다.")
-        print(f"📊 통계:")
-        print(f"   - 성공한 종목 수: {success_count}/{len(stock_list)}")
-        print(f"   - 실패한 종목 수: {fail_count}")
-        print(f"   - 수집된 데이터 레코드 수: {len(combined_df)}개")
+        logger.info(f"\n💾 {start_date} 데이터가 데이터베이스에 저장되었습니다.")
+        logger.info(f"📊 통계:")
+        logger.info(f"   - 성공한 종목 수: {success_count}/{len(stock_list)}")
+        logger.info(f"   - 실패한 종목 수: {fail_count}")
+        logger.info(f"   - 수집된 데이터 레코드 수: {len(combined_df)}개")
         
         return combined_df
     else:
-        print(f"❌ 저장할 {start_date} 데이터가 없습니다.")
+        logger.warning(f"❌ 저장할 {start_date} 데이터가 없습니다.")
         return None
 
 if __name__ == "__main__":
-    print("📢 KOSPI200 오늘 주가 데이터를 가져오는 중...")
+    logger.info("📢 KOSPI200 오늘 주가 데이터를 가져오는 중...")
     create_stock_prices_table()
     stock_data = fetch_stock_prices()
     if stock_data is not None:
-        print(f"✅ 데이터 수집 및 저장 완료!")
+        logger.info(f"✅ 데이터 수집 및 저장 완료!")
     else:
-        print("❌ 데이터 수집 실패!") 
+        logger.error("❌ 데이터 수집 실패!") 
