@@ -59,7 +59,7 @@ def create_stock_prices_table():
 def get_date_range_3years():
     """3년치 데이터를 위한 날짜 범위 계산 (8월 28일까지)"""
     korea_tz = pytz.timezone('Asia/Seoul')
-    end_date = datetime(2025, 9, 2)  # 8월 28일까지
+    end_date = datetime(2025, 9, 23)  # 8월 28일까지
     start_date = end_date - timedelta(days=4*365)  # 3년 전
     
     return start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')
